@@ -1,6 +1,6 @@
-# MarkVue
+# MarkView
 
-MarkVue is a sleek, GTK-based Markdown viewer that provides real-time rendering and syntax highlighting.
+MarkView is a sleek, GTK-based Markdown viewer that provides real-time rendering and syntax highlighting.
 
 ## Features
 
@@ -19,8 +19,8 @@ MarkVue is a sleek, GTK-based Markdown viewer that provides real-time rendering 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/v8v88v8v88/markvue.git
-cd markvue
+git clone https://github.com/v8v88v8v88/markview.git
+cd markview
 ```
 
 2. Build and run:
@@ -38,7 +38,7 @@ cargo run
 
 ## Usage
 
-1. Launch MarkVue
+1. Launch MarkView
 2. Type Markdown in the left pane
 3. View rendered output in real-time on the right pane
 4. Use the hamburger menu for additional options

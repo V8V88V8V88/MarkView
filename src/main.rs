@@ -7,7 +7,7 @@ use sourceview5::{prelude::*, View as SourceView, Buffer as SourceBuffer};
 fn build_ui(app: &Application) {
     let window = ApplicationWindow::builder()
         .application(app)
-        .title("MarkVue")
+        .title("MarkView")
         .default_width(800)
         .default_height(600)
         .build();
@@ -69,10 +69,10 @@ fn build_ui(app: &Application) {
         let about_dialog = gtk4::AboutDialog::builder()
             .transient_for(&window_clone)
             .modal(true)
-            .program_name("MarkVue")
+            .program_name("MarkView")
             .version("1.0")
             .authors(vec!["Vaibhav Pratap Singh"]) 
-            .website("https://github.com/v8v88v8v88/MarkVue")
+            .website("https://github.com/v8v88v8v88/MarkView")
             .website_label("GitHub Repository")
             .build();
         about_dialog.present();
@@ -91,17 +91,9 @@ fn build_ui(app: &Application) {
 
 fn main() {
     let app = Application::builder()
-        .application_id("com.example.MarkVue")
+        .application_id("com.example.MarkView")
         .build();
 
     app.connect_activate(build_ui);
     app.run();
 }
-
-let settings = match Settings::default() {
-    Some(settings) => settings,
-    None => {
-        eprintln!("Failed to get default settings. Exiting.");
-        std::process::exit(1);
-    }
-};
