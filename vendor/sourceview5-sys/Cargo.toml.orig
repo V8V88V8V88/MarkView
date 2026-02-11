@@ -1,0 +1,102 @@
+[package]
+authors = ["Bilal Elmoussaoui <bil.elmoussaoui@gmail.com>"]
+build = "build.rs"
+edition = "2021"
+name = "sourceview5-sys"
+version = "0.10.1"
+license = "MIT"
+homepage = "https://world.pages.gitlab.gnome.org/Rust/sourceview5-rs/"
+categories = ["api-bindings", "gui"]
+keywords = ["gtk4-rs", "gnome", "sourceview", "ffi", "GUI"]
+description = "FFI bindings for GtkSourceView 5"
+documentation = "https://world.pages.gitlab.gnome.org/Rust/sourceview5-rs/stable/latest/docs/sourceview5_sys"
+repository = "https://gitlab.gnome.org/World/Rust/sourceview5-rs/"
+
+[package.metadata.system-deps.gtksourceview_5]
+name = "gtksourceview-5"
+version = "4.90"
+
+[package.metadata.system-deps.gtksourceview_5.v5_0]
+version = "4.90"
+
+[package.metadata.system-deps.gtksourceview_5.v5_2]
+version = "5.2"
+
+[package.metadata.system-deps.gtksourceview_5.v5_4]
+version = "5.4"
+
+[package.metadata.system-deps.gtksourceview_5.v5_6]
+version = "5.6"
+
+[package.metadata.system-deps.gtksourceview_5.v5_10]
+version = "5.9"
+
+[package.metadata.system-deps.gtksourceview_5.v5_12]
+version = "5.12"
+
+[package.metadata.system-deps.gtksourceview_5.v5_18]
+version = "5.17"
+
+[package.metadata.system-deps.gtksourceview_5.v5_16]
+version = "5.16"
+
+[package.metadata.docs.rs]
+features = []
+rustc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
+
+[dependencies]
+libc = "0.2"
+
+[dependencies.glib-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core.git"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.pango-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core.git"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.gio-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core.git"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.gdk-pixbuf-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core.git"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.gobject-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core.git"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.gtk-sys]
+package = "gtk4-sys"
+git = "https://github.com/gtk-rs/gtk4-rs.git"
+branch = "0.10"
+version = "0.10"
+
+[dependencies.gdk-sys]
+package = "gdk4-sys"
+git = "https://github.com/gtk-rs/gtk4-rs.git"
+branch = "0.10"
+version = "0.10"
+
+[build-dependencies]
+system-deps = "7"
+
+[dev-dependencies]
+shell-words = "1.0.0"
+tempfile = "3"
+
+[features]
+v5_2 = []
+v5_4 = ["v5_2"]
+v5_6 = ["v5_4"]
+v5_10 = ["v5_6"]
+v5_12 = ["v5_10"]
+v5_18 = ["v5_16"]
+v5_16 = ["v5_12"]

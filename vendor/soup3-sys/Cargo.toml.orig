@@ -1,0 +1,61 @@
+[package]
+name = "soup3-sys"
+version = "0.8.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["The Gtk-rs Project Developers"]
+description = "FFI bindings of Soup 3"
+repository = "https://gitlab.gnome.org/World/Rust/soup3-rs"
+license = "MIT"
+homepage = "https://gtk-rs.org"
+keywords = ["soup", "gtk-rs", "gnome"]
+build = "build.rs"
+
+[package.metadata.system-deps.libsoup_3_0]
+name = "libsoup-3.0"
+version = "3.0"
+
+[package.metadata.system-deps.libsoup_3_0.v3_2]
+version = "3.2"
+
+[package.metadata.system-deps.libsoup_3_0.v3_4]
+version = "3.4"
+
+[package.metadata.system-deps.libsoup_3_0.v3_6]
+version = "3.6"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+features = []
+rustc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+libc = "0.2"
+
+[dependencies.glib-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.gio-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core"
+branch = "0.21"
+version = "0.21"
+
+[dependencies.gobject-sys]
+git = "https://github.com/gtk-rs/gtk-rs-core"
+branch = "0.21"
+version = "0.21"
+
+[build-dependencies]
+system-deps = "7"
+
+[dev-dependencies]
+shell-words = "1.0.0"
+tempfile = "3"
+
+[features]
+v3_0 = []
+v3_2 = []
+v3_4 = ["v3_2"]
+v3_6 = ["v3_4"]

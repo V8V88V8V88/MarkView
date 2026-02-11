@@ -1,0 +1,31 @@
+app-id: io.github.v8v88v8v88.MarkView
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: markview
+
+modules:
+  - name: markview
+    buildsystem: simple
+    build-commands:
+      - bash -c 'export PATH="/usr/lib/sdk/rust-stable/bin:$PATH" && cargo build --release'
+      - install -Dm755 target/release/gtk-markdown-viewer /app/bin/markview
+    sources:
+      - type: dir
+        path: ..
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+
+finish-args:
+  - --share=ipc
+  - --device=dri
+  - --socket=session-bus
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --share=network
+  - --filesystem=xdg-documents
+  - --filesystem=xdg-download
+  - --metadata=X-D-Bus-Name=io.github.v8v88v8v88.MarkView
