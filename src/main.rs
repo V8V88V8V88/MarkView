@@ -1,17 +1,12 @@
-use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Box, HeaderBar, MenuButton, Orientation, Paned};
+use adw::prelude::*;
+use adw::{Application, ApplicationWindow, HeaderBar};
+use adw::AboutDialog;
+use gtk4::{Box, MenuButton, Orientation, Paned};
 use gtk4::{gio, Settings};
 use pulldown_cmark::{html, Options, Parser};
-use sourceview5::{prelude::*, View as SourceView, Buffer as SourceBuffer};
+use sourceview5::{prelude::*, Buffer as SourceBuffer, View as SourceView};
 
 fn build_ui(app: &Application) {
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("MarkView")
-        .default_width(800)
-        .default_height(600)
-        .build();
-
     let settings = Settings::default().expect("Failed to get default settings");
     settings.set_gtk_keynav_use_caret(false);
     settings.set_gtk_error_bell(false);
@@ -21,7 +16,6 @@ fn build_ui(app: &Application) {
         .icon_name("open-menu-symbolic")
         .build();
     header_bar.pack_end(&menu_button);
-    window.set_titlebar(Some(&header_bar));
 
     let paned = Paned::builder()
         .orientation(Orientation::Vertical)
@@ -45,9 +39,19 @@ fn build_ui(app: &Application) {
     paned.set_start_child(Some(&source_view));
     paned.set_end_child(Some(&markdown_view));
 
-    let vbox = Box::new(Orientation::Vertical, 0);
-    vbox.append(&paned);
-    window.set_child(Some (&vbox));
+    // Combine the content in a box
+    // Adwaita's ApplicationWindow does not include a HeaderBar
+    let content = Box::new(Orientation::Vertical, 0);
+    content.append(&header_bar);
+    content.append(&paned);
+
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("MarkView")
+        .default_width(800)
+        .default_height(600)
+        .content(&content)
+        .build();
 
     let markdown_view_clone = markdown_view.clone();
     source_buffer.connect_changed(move |buffer| {
@@ -66,16 +70,14 @@ fn build_ui(app: &Application) {
     let about_action = gio::SimpleAction::new("about", None);
     let window_clone = window.clone();
     about_action.connect_activate(move |_, _| {
-        let about_dialog = gtk4::AboutDialog::builder()
-            .transient_for(&window_clone)
-            .modal(true)
-            .program_name("MarkView")
+        let about_dialog = AboutDialog::builder()
+            .application_name("MarkView")
             .version("1.0")
-            .authors(vec!["Vaibhav Pratap Singh"]) 
             .website("https://github.com/v8v88v8v88/MarkView")
-            .website_label("GitHub Repository")
+            .developers(vec!["Vaibhav Pratap Singh"])
+            .license_type(gtk4::License::Gpl30)
             .build();
-        about_dialog.present();
+        about_dialog.present(Some(&window_clone));
     });
     app.add_action(&about_action);
 
