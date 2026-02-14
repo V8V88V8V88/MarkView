@@ -2,8 +2,6 @@
 
 MarkView is a sleek, GTK-based Markdown viewer that provides real-time rendering and syntax highlighting.
 
-<img src="screenshot.png" width="600" alt="MarkView Screenshot" />
-
 ## Features
 
 - Real-time Markdown rendering
@@ -19,51 +17,15 @@ MarkView is a sleek, GTK-based Markdown viewer that provides real-time rendering
 
 ## Installation
 
-### From release (recommended)
-
-1. Download the latest release from [Releases](https://github.com/v8v88v8v88/MarkView/releases)
-2. Extract the tarball and run `./markview`
-
-### Flatpak
-
-1. Download `MarkView-v1.0.0.flatpak` from [Releases](https://github.com/v8v88v8v88/MarkView/releases)
-2. Install: `flatpak install MarkView-v1.0.0.flatpak`
-3. Run: `flatpak run io.github.v8v88v8v88.MarkView`
-
-### From source
-
 1. Clone the repository:
 ```bash
-git clone https://github.com/v8v88v8v88/MarkView.git
-cd MarkView
+git clone https://github.com/v8v88v8v88/markview.git
+cd markview
 ```
 
 2. Build and run:
 ```bash
 cargo run
-```
-
-### Build release binary locally
-
-```bash
-./scripts/build-release.sh
-```
-
-### Build Flatpak locally
-
-```bash
-flatpak install flathub org.gnome.Platform//46 org.gnome.Sdk//46 org.freedesktop.Sdk.Extension.rust-stable
-flatpak-builder --force-clean build flatpak/io.github.v8v88v8v88.MarkView.yml
-flatpak-builder --run build markview
-```
-
-### Create GitHub release
-
-Push a version tag to trigger the release workflow (builds binary tarball + Flatpak bundle):
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
 ```
 
 ## Dependencies

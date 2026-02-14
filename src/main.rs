@@ -1,15 +1,16 @@
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
 use adw::{
-    AboutDialog, Application, ApplicationWindow, HeaderBar, PreferencesGroup,
-    PreferencesDialog, PreferencesPage, ShortcutsDialog, ShortcutsItem, ShortcutsSection,
-    SwitchRow,
+    AboutDialog, Application, ApplicationWindow, ColorScheme, ComboRow, HeaderBar,
+    PreferencesGroup, PreferencesDialog, PreferencesPage, ShortcutsDialog, ShortcutsItem,
+    ShortcutsSection, StyleManager, SwitchRow,
 };
 use gtk4::{
     Box, Button, EventControllerKey, MenuButton, Orientation, Paned, PropagationPhase,
-    ScrolledWindow,
+    PropertyExpression, ScrolledWindow, StringObject,
 };
 use gtk4::{gio, Settings};
 use pulldown_cmark::{html, Options, Parser};
@@ -17,48 +18,158 @@ use sourceview5::{prelude::*, Buffer as SourceBuffer, View as SourceView, VimIMC
 use webkit6::prelude::*;
 use webkit6::WebView;
 
-const PREVIEW_CSS: &str = r#"
-    :root { color-scheme: light dark; }
-    body {
-        font-family: 'Cantarell', 'Inter', system-ui, sans-serif;
-        font-size: 15px; line-height: 1.7;
-        padding: 16px 24px; margin: 0;
-        color: #e0e0e0; background: #2a2a2a;
-        word-wrap: break-word;
-    }
-    h1, h2, h3, h4, h5, h6 { color: #fff; margin-top: 1.2em; margin-bottom: 0.4em; font-weight: 600; }
+const PREVIEW_CSS_DARK: &str = r#"
+    :root { color-scheme: dark; background: #1a1a1a !important; }
+    html { background: #1a1a1a !important; min-height: 100%; }
+    body { font-family: 'Cantarell','Inter',system-ui,sans-serif; font-size: 15px; line-height: 1.7;
+        padding: 16px 24px; margin: 0; min-height: 100%; color: #e0e0e0; background: #1a1a1a !important; word-wrap: break-word; }
+    h1,h2,h3,h4,h5,h6 { color: #fff; margin-top: 1.2em; margin-bottom: 0.4em; font-weight: 600; }
     h1 { font-size: 1.8em; border-bottom: 1px solid #444; padding-bottom: 0.3em; }
     h2 { font-size: 1.5em; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.2em; }
     h3 { font-size: 1.25em; }
     p { margin: 0.6em 0; }
     a { color: #78b9f5; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    code {
-        font-family: 'JetBrains Mono', 'Source Code Pro', monospace;
-        background: #1e1e1e; padding: 2px 6px; border-radius: 4px; font-size: 0.9em;
-    }
+    code { font-family: 'JetBrains Mono','Source Code Pro',monospace; background: #1e1e1e; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
     pre { background: #1e1e1e; padding: 14px 18px; border-radius: 8px; overflow-x: auto; border: 1px solid #3a3a3a; }
     pre code { background: none; padding: 0; }
-    blockquote {
-        border-left: 3px solid #78b9f5; margin: 0.8em 0; padding: 0.4em 1em;
-        color: #b0b0b0; background: #252525; border-radius: 0 6px 6px 0;
-    }
-    ul, ol { padding-left: 1.8em; }
+    blockquote { border-left: 3px solid #78b9f5; margin: 0.8em 0; padding: 0.4em 1em; color: #b0b0b0; background: #252525; border-radius: 0 6px 6px 0; }
+    ul,ol { padding-left: 1.8em; }
     li { margin: 0.25em 0; }
     hr { border: none; border-top: 1px solid #444; margin: 1.5em 0; }
     table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-    th, td { border: 1px solid #444; padding: 8px 12px; text-align: left; }
+    th,td { border: 1px solid #444; padding: 8px 12px; text-align: left; }
     th { background: #333; font-weight: 600; }
     img { max-width: 100%; border-radius: 6px; }
     strong { color: #f0f0f0; }
     em { color: #d0d0d0; }
+    .placeholder { color: #a8a8a8; text-align: center; margin-top: 2em; }
 "#;
 
-fn build_html_page(body: &str) -> String {
+const PRINT_CSS: &str = r#"
+    @media print {
+        html, body, :root { margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; }
+        body { padding: 16px 24px !important; }
+        img { margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; box-shadow: none !important; }
+    }
+"#;
+
+const PREVIEW_CSS_LIGHT: &str = r#"
+    :root { color-scheme: light; background: #fafafa !important; }
+    html { background: #fafafa !important; min-height: 100%; }
+    body { font-family: 'Cantarell','Inter',system-ui,sans-serif; font-size: 15px; line-height: 1.7;
+        padding: 16px 24px; margin: 0; min-height: 100%; color: #241f31; background: #fafafa !important; word-wrap: break-word; }
+    h1,h2,h3,h4,h5,h6 { color: #1c1c1c; margin-top: 1.2em; margin-bottom: 0.4em; font-weight: 600; }
+    h1 { font-size: 1.8em; border-bottom: 1px solid #c0bfc4; padding-bottom: 0.3em; }
+    h2 { font-size: 1.5em; border-bottom: 1px solid #d1d0d5; padding-bottom: 0.2em; }
+    h3 { font-size: 1.25em; }
+    p { margin: 0.6em 0; }
+    a { color: #1c71d8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: 'JetBrains Mono','Source Code Pro',monospace; background: #ebebeb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1c1c1c; }
+    pre { background: #ebebeb; padding: 14px 18px; border-radius: 8px; overflow-x: auto; border: 1px solid #d1d0d5; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 3px solid #1c71d8; margin: 0.8em 0; padding: 0.4em 1em; color: #56565c; background: #f0eff1; border-radius: 0 6px 6px 0; }
+    ul,ol { padding-left: 1.8em; }
+    li { margin: 0.25em 0; }
+    hr { border: none; border-top: 1px solid #c0bfc4; margin: 1.5em 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+    th,td { border: 1px solid #c0bfc4; padding: 8px 12px; text-align: left; }
+    th { background: #ebe9ed; font-weight: 600; }
+    img { max-width: 100%; border-radius: 6px; }
+    strong { color: #1c1c1c; }
+    em { color: #363536; }
+    .placeholder { color: #6b6b6b; text-align: center; margin-top: 2em; }
+"#;
+
+const PREF_THEME: &str = "theme";
+const PREF_SCHEME: &str = "color-scheme";
+const DEFAULT_THEME: &str = "default";
+const DEFAULT_SCHEME: &str = "Adwaita-dark";
+
+const EDITOR_SCHEMES: &[&str] = &[
+    "Adwaita-dark",
+    "Adwaita",
+    "Kate",
+    "Kate-dark",
+    "Cobalt",
+    "Solarized-dark",
+    "Solarized-light",
+    "Monokai",
+    "Builder",
+    "Oblivion",
+];
+
+fn config_path() -> PathBuf {
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."));
+    config.join("MarkView").join("preferences.ini")
+}
+
+fn load_pref(key: &str, default: &str) -> String {
+    let path = config_path();
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix(&format!("{}=", key)) {
+                    return rest.to_string();
+                }
+            }
+        }
+    }
+    default.to_string()
+}
+
+fn save_pref(key: &str, value: &str) {
+    let path = config_path();
+    let parent = path.parent().unwrap();
+    let _ = std::fs::create_dir_all(parent);
+    let mut prefs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            for line in content.lines() {
+                if let Some((k, v)) = line.split_once('=') {
+                    prefs.insert(k.trim().to_string(), v.trim().to_string());
+                }
+            }
+        }
+    }
+    prefs.insert(key.to_string(), value.to_string());
+    let content: String = prefs
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let _ = std::fs::write(&path, content);
+}
+
+fn build_html_page(body: &str, dark: bool) -> String {
+    let css = if dark { PREVIEW_CSS_DARK } else { PREVIEW_CSS_LIGHT };
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{}</style></head><body>{}</body></html>",
-        PREVIEW_CSS, body
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{} {}</style></head><body>{}</body></html>",
+        css, PRINT_CSS, body
     )
+}
+
+fn base_uri_for_preview(current_file: Option<&gio::File>) -> Option<String> {
+    if let Some(file) = current_file {
+        if let Some(parent) = file.parent() {
+            let mut uri = parent.uri().to_string();
+            if !uri.ends_with('/') {
+                uri.push('/');
+            }
+            return Some(uri);
+        }
+    }
+    std::env::current_dir()
+        .ok()
+        .and_then(|path| path.canonicalize().ok())
+        .map(|path| format!("file://{}/", path.to_string_lossy()))
 }
 
 fn create_md_filters() -> gio::ListStore {
@@ -123,7 +234,13 @@ fn build_ui(app: &Application) {
         .icon_name("open-menu-symbolic")
         .build();
 
+    let sidebar_toggle = Button::builder()
+        .icon_name("view-dual-symbolic")
+        .tooltip_text("Hide left panel")
+        .build();
+
     header_bar.pack_start(&open_button);
+    header_bar.pack_start(&sidebar_toggle);
     // pack_end adds right-to-left, so menu first, then pdf, then save
     header_bar.pack_end(&menu_button);
     header_bar.pack_end(&export_pdf_button);
@@ -143,8 +260,19 @@ fn build_ui(app: &Application) {
             .language("markdown")
             .unwrap(),
     ));
-    if let Some(scheme) = sourceview5::StyleSchemeManager::default().scheme("Adwaita-dark") {
+    let scheme_mgr = sourceview5::StyleSchemeManager::default();
+    let scheme_id = load_pref(PREF_SCHEME, DEFAULT_SCHEME);
+    if let Some(scheme) = scheme_mgr.scheme(&scheme_id) {
         source_buffer.set_style_scheme(Some(&scheme));
+    } else if let Some(scheme) = scheme_mgr.scheme(DEFAULT_SCHEME) {
+        source_buffer.set_style_scheme(Some(&scheme));
+    }
+
+    let style_mgr = StyleManager::default();
+    match load_pref(PREF_THEME, DEFAULT_THEME).as_str() {
+        "force-dark" => style_mgr.set_color_scheme(ColorScheme::ForceDark),
+        "force-light" => style_mgr.set_color_scheme(ColorScheme::ForceLight),
+        _ => style_mgr.set_color_scheme(ColorScheme::Default),
     }
     source_buffer.set_highlight_syntax(true);
     source_view.set_show_line_numbers(true);
@@ -169,11 +297,14 @@ fn build_ui(app: &Application) {
     let webview = WebView::new();
     webview.set_vexpand(true);
     webview.set_hexpand(true);
+    let base_uri_initial = base_uri_for_preview(None);
+    let dark = StyleManager::default().is_dark();
     webview.load_html(
-        &build_html_page("<p style='color:#888;text-align:center;margin-top:2em;'>Start typing markdown on the left…</p>"),
-        None,
+        &build_html_page("<p class='placeholder'>Start typing markdown on the left…</p>", dark),
+        base_uri_initial.as_deref(),
     );
-    webview.set_background_color(&gtk4::gdk::RGBA::new(0.165, 0.165, 0.165, 1.0));
+    let (r, g, b) = if dark { (0.102, 0.102, 0.102) } else { (0.98, 0.98, 0.98) };
+    webview.set_background_color(&gtk4::gdk::RGBA::new(r, g, b, 1.0));
 
     let preview_scroll = ScrolledWindow::builder()
         .child(&webview)
@@ -183,7 +314,11 @@ fn build_ui(app: &Application) {
 
     paned.set_start_child(Some(&editor_scroll));
     paned.set_end_child(Some(&preview_scroll));
+    paned.set_shrink_start_child(true);
     paned.set_position(400);
+
+    let saved_paned_pos: Rc<RefCell<i32>> = Rc::new(RefCell::new(400));
+    let left_panel_visible: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
 
     // --- Window ---
     let content = Box::new(Orientation::Vertical, 0);
@@ -198,14 +333,67 @@ fn build_ui(app: &Application) {
         .content(&content)
         .build();
 
+    {
+        let paned = paned.clone();
+        let saved_pos = saved_paned_pos.clone();
+        let visible = left_panel_visible.clone();
+        sidebar_toggle.connect_clicked(move |btn| {
+            if *visible.borrow() {
+                let pos = paned.position();
+                *saved_pos.borrow_mut() = if pos > 0 { pos } else { 400 };
+                paned.set_position(0);
+                btn.set_icon_name("sidebar-show-symbolic");
+                btn.set_tooltip_text(Some("Show left panel"));
+                *visible.borrow_mut() = false;
+            } else {
+                paned.set_position(*saved_pos.borrow());
+                btn.set_icon_name("view-dual-symbolic");
+                btn.set_tooltip_text(Some("Hide left panel"));
+                *visible.borrow_mut() = true;
+            }
+        });
+    }
+
     // --- Live Preview ---
-    let wv = webview.clone();
+    let refresh_preview = {
+        let wv = webview.clone();
+        let cf_preview = current_file.clone();
+        move |buffer: &SourceBuffer| {
+            let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+            let parser = Parser::new_ext(&text, Options::all());
+            let mut html_out = String::new();
+            html::push_html(&mut html_out, parser);
+            let base_uri = base_uri_for_preview(cf_preview.borrow().as_ref());
+            let dark = StyleManager::default().is_dark();
+            wv.load_html(&build_html_page(&html_out, dark), base_uri.as_deref());
+            let (r, g, b) = if dark { (0.102, 0.102, 0.102) } else { (0.98, 0.98, 0.98) };
+            wv.set_background_color(&gtk4::gdk::RGBA::new(r, g, b, 1.0));
+        }
+    };
     source_buffer.connect_changed(move |buffer| {
-        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-        let parser = Parser::new_ext(&text, Options::all());
-        let mut html_out = String::new();
-        html::push_html(&mut html_out, parser);
-        wv.load_html(&build_html_page(&html_out), None);
+        refresh_preview(buffer);
+    });
+
+    StyleManager::default().connect_dark_notify({
+        let wv = webview.clone();
+        let sb = source_buffer.clone();
+        let cf = current_file.clone();
+        move |_| {
+            let text = sb.text(&sb.start_iter(), &sb.end_iter(), false);
+            let parser = Parser::new_ext(&text, Options::all());
+            let mut html_out = String::new();
+            html::push_html(&mut html_out, parser);
+            let base_uri = base_uri_for_preview(cf.borrow().as_ref());
+            let dark = StyleManager::default().is_dark();
+            let body = if html_out.is_empty() {
+                "<p class='placeholder'>Start typing markdown on the left…</p>".to_string()
+            } else {
+                html_out
+            };
+            wv.load_html(&build_html_page(&body, dark), base_uri.as_deref());
+            let (r, g, b) = if dark { (0.102, 0.102, 0.102) } else { (0.98, 0.98, 0.98) };
+            wv.set_background_color(&gtk4::gdk::RGBA::new(r, g, b, 1.0));
+        }
     });
 
     // --- Menu ---
@@ -245,11 +433,11 @@ fn build_ui(app: &Application) {
                     if let Some(path) = file.path() {
                         match std::fs::read_to_string(&path) {
                             Ok(content) => {
+                                *cf.borrow_mut() = Some(file);
                                 buf.set_text(&content);
                                 if let Some(name) = path.file_name() {
                                     w_inner.set_title(Some(&format!("{} — MarkView", name.to_string_lossy())));
                                 }
-                                *cf.borrow_mut() = Some(file);
                             }
                             Err(e) => eprintln!("Failed to read file: {e}"),
                         }
@@ -374,8 +562,14 @@ fn build_ui(app: &Application) {
                         gtk4::PRINT_SETTINGS_OUTPUT_FILE_FORMAT.as_str(),
                         Some("PDF"),
                     );
+                    let page_setup = gtk4::PageSetup::new();
+                    page_setup.set_top_margin(0.0, gtk4::Unit::Mm);
+                    page_setup.set_bottom_margin(0.0, gtk4::Unit::Mm);
+                    page_setup.set_left_margin(0.0, gtk4::Unit::Mm);
+                    page_setup.set_right_margin(0.0, gtk4::Unit::Mm);
                     let print_op = webkit6::PrintOperation::new(&wv);
                     print_op.set_print_settings(&settings);
+                    print_op.set_page_setup(&page_setup);
                     print_op.run_dialog(Some(&w));
                 }
             });
@@ -388,8 +582,107 @@ fn build_ui(app: &Application) {
     {
         let w = window.clone();
         let sv = source_view.clone();
+        let sb = source_buffer.clone();
         let vc = vim_controller.clone();
         preferences_action.connect_activate(move |_, _| {
+            let theme_model = gio::ListStore::new::<StringObject>();
+            theme_model.append(&StringObject::new("Auto"));
+            theme_model.append(&StringObject::new("Dark"));
+            theme_model.append(&StringObject::new("Light"));
+            let theme_expr = PropertyExpression::new(StringObject::static_type(), None::<&gtk4::Expression>, "string");
+            let theme_row = ComboRow::builder()
+                .title("Theme")
+                .subtitle("Application appearance")
+                .model(&theme_model)
+                .expression(&theme_expr)
+                .build();
+            let saved_theme = load_pref(PREF_THEME, DEFAULT_THEME);
+            theme_row.set_selected(match saved_theme.as_str() {
+                "force-dark" => 1,
+                "force-light" => 2,
+                _ => 0,
+            });
+            let style_mgr = StyleManager::default();
+            theme_row.connect_selected_notify({
+                let style_mgr = style_mgr.clone();
+                move |row| {
+                    let scheme = match row.selected() {
+                        1 => ColorScheme::ForceDark,
+                        2 => ColorScheme::ForceLight,
+                        _ => ColorScheme::Default,
+                    };
+                    style_mgr.set_color_scheme(scheme);
+                    save_pref(
+                        PREF_THEME,
+                        match scheme {
+                            ColorScheme::ForceDark => "force-dark",
+                            ColorScheme::ForceLight => "force-light",
+                            _ => "default",
+                        },
+                    );
+                }
+            });
+
+            let scheme_mgr = sourceview5::StyleSchemeManager::default();
+            let all_ids: Vec<_> = scheme_mgr.scheme_ids();
+            let scheme_model = gio::ListStore::new::<StringObject>();
+            let mut scheme_ids = Vec::new();
+            for &pref_id in EDITOR_SCHEMES {
+                if let Some(id) = all_ids.iter().find(|s| s.as_str().eq_ignore_ascii_case(pref_id)) {
+                    if let Some(scheme) = scheme_mgr.scheme(id.as_str()) {
+                        scheme_model.append(&StringObject::new(&scheme.name().to_string()));
+                        scheme_ids.push(id.to_string());
+                    }
+                }
+            }
+            if scheme_ids.is_empty() {
+                for id in all_ids.iter().take(10) {
+                    if let Some(scheme) = scheme_mgr.scheme(id.as_str()) {
+                        scheme_model.append(&StringObject::new(&scheme.name().to_string()));
+                        scheme_ids.push(id.to_string());
+                    }
+                }
+            }
+            if scheme_ids.is_empty() {
+                scheme_model.append(&StringObject::new("Adwaita dark"));
+                scheme_ids.push("Adwaita-dark".to_string());
+            }
+            let scheme_expr = PropertyExpression::new(StringObject::static_type(), None::<&gtk4::Expression>, "string");
+            let scheme_row = ComboRow::builder()
+                .title("Editor color scheme")
+                .subtitle("Syntax highlighting theme")
+                .model(&scheme_model)
+                .expression(&scheme_expr)
+                .build();
+            let saved_scheme = load_pref(PREF_SCHEME, DEFAULT_SCHEME);
+            let scheme_idx = scheme_ids.iter().position(|s| s == &saved_scheme).unwrap_or(0);
+            scheme_row.set_selected(scheme_idx as u32);
+            let scheme_ids = Rc::new(scheme_ids);
+            scheme_row.connect_selected_notify({
+                let sb = sb.clone();
+                let scheme_ids = scheme_ids.clone();
+                move |row| {
+                    let idx = row.selected() as usize;
+                    if let Some(id) = scheme_ids.get(idx) {
+                        let mgr = sourceview5::StyleSchemeManager::default();
+                        if let Some(scheme) = mgr.scheme(id) {
+                            sb.set_style_scheme(Some(&scheme));
+                            save_pref(PREF_SCHEME, id);
+                        }
+                    }
+                }
+            });
+
+            let appearance_group = PreferencesGroup::new();
+            appearance_group.set_title("Appearance");
+            appearance_group.add(&theme_row);
+            appearance_group.add(&scheme_row);
+            let appearance_page = PreferencesPage::builder()
+                .title("Appearance")
+                .icon_name("preferences-desktop-theme-symbolic")
+                .build();
+            appearance_page.add(&appearance_group);
+
             let vim_row = SwitchRow::builder()
                 .title("Vim keybindings")
                 .subtitle("Use Vim-style keybindings in the editor")
@@ -453,6 +746,7 @@ fn build_ui(app: &Application) {
             let prefs = PreferencesDialog::builder()
                 .title("Preferences")
                 .build();
+            prefs.add(&appearance_page);
             prefs.add(&editor_page);
             prefs.present(Some(&w));
         });
@@ -466,7 +760,7 @@ fn build_ui(app: &Application) {
         about_action.connect_activate(move |_, _| {
             let dlg = AboutDialog::builder()
                 .application_name("MarkView")
-                .version("1.0")
+                .version("1.1.0")
                 .developer_name("Vaibhav Pratap Singh")
                 .developers(vec!["Vaibhav Pratap Singh"])
                 .copyright("© 2026")
