@@ -14,7 +14,7 @@ Following features and improvements have been implemented over the original proj
 - **Sync Scroll**: Implemented scroll synchronization, ensuring the preview follows the editor's position accurately.
 
 ### 🛠️ Advanced Editor Features
-- **Advanced Search & Replace**: Implmented a non-intrusive search and replace functionality with support for Regular Expressions (Regex).
+- **Advanced Search & Replace**: Implemented a non-intrusive search and replace functionality with support for Regular Expressions (Regex).
 
 ### 📄 Workflow & Export
 - **Metadata Handling**: Support for front-matter blocks, with user settings to show, hide, or ignore metadata during rendering.
