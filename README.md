@@ -1,25 +1,58 @@
-# MarkView (Enhanced)
+<div align="center">
+  <img src="images/markview-logo.png" alt="MarkView" width="96" />
+  <h1>MarkView</h1>
+  <p>A Markdown editor for GNOME with a live preview.</p>
+</div>
 
-This repository contains an enhanced version of the [original MarkVue project](https://github.com/V8V88V8V88/MarkVue). While maintaining the core goal of a sleek GTK-based Markdown viewer, this version introduces significant architectural improvements, professional features, and a modern UI/UX.
+![MarkView](screenshot.png)
 
-## 🚀 Key Enhancements
+Write Markdown on the left and see it rendered on the right as you type. Built with Rust, GTK4 and libadwaita.
 
-Following features and improvements have been implemented over the original project:
+## Features
 
-### 🎨 Modernized UI/UX
-- **Hideable Side Panel**: Added the ability to toggle the editor pane for focused reading.
+- Live preview rendered with WebKit, updated in place without reloading the page
+- Editor and preview scroll together
+- Split, preview-only and editor-only layouts (Ctrl+L to switch)
+- Editor built on GtkSourceView: 27 color schemes in light and dark, line numbers, word wrap and optional Vim keybindings
+- Find in the document (Ctrl+F)
+- Export to PDF
+- YAML front matter can be shown, hidden or ignored
+- Readable line length for the preview, with an adjustable width
+- Every keyboard shortcut can be changed in Preferences
+- Follows the system light or dark style
 
-### ⚡ Performance & Rendering
-- **Hybrid Rendering (DOM Injection)**: Replaced full-page reloads with JavaScript-based DOM injection. The preview now updates instantly as you type without flickering or losing scroll position.
-- **Sync Scroll**: Implemented scroll synchronization, ensuring the preview follows the editor's position accurately.
+## Install
 
-### 🛠️ Advanced Editor Features
-- **Advanced Search & Replace**: Implemented a non-intrusive search and replace functionality with support for Regular Expressions (Regex).
+Download the Linux x86_64 tarball from the [latest release](https://github.com/V8V88V8V88/MarkView/releases/latest), extract it and run `./markview`. It needs GTK 4, libadwaita 1.8, GtkSourceView 5 and WebKitGTK 6.0 installed on your system.
 
-### 📄 Workflow & Export
-- **Metadata Handling**: Support for front-matter blocks, with user settings to show, hide, or ignore metadata during rendering.
-- **Customizable Shortcuts**: Implemented a comprehensive keyboard shortcut system where common actions can be remapped via the preferences.
+## Build from source
 
-## 📚 Documentation
-For the original project description, installation basics, and core dependencies, please refer to:
-- The [Original Repository](https://github.com/V8V88V8V88/MarkVue)
+You need Rust and the development packages for GTK 4, libadwaita 1.8, GtkSourceView 5 and WebKitGTK 6.0.
+
+```bash
+# Fedora
+sudo dnf install gtk4-devel libadwaita-devel gtksourceview5-devel webkitgtk6.0-devel
+
+git clone https://github.com/V8V88V8V88/MarkView.git
+cd MarkView
+cargo run --release
+```
+
+## Keyboard shortcuts
+
+| Action | Default |
+|---|---|
+| Open | Ctrl+O |
+| Save / Save As | Ctrl+S / Ctrl+Shift+S |
+| Export as PDF | Ctrl+P |
+| Find | Ctrl+F |
+| Toggle editor | Ctrl+E |
+| Switch layout | Ctrl+L |
+| Toggle readable line length | Ctrl+R |
+| Preferences | Ctrl+, |
+| Shortcuts | Ctrl+? |
+| Quit | Ctrl+Q |
+
+## License
+
+GPL-2.0. See [LICENSE](LICENSE).
