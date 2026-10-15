@@ -67,8 +67,18 @@ jobs:
       - name: Add Flathub
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install -y flathub org.gnome.Platform//49 org.gnome.Sdk//49
-          flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-stable
+          flatpak install --user -y flathub org.gnome.Platform//49 org.gnome.Sdk//49
+          # GNOME 49 is built on freedesktop SDK 25.08
+          flatpak install --user -y flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # flatpak-builder has no network access, so fetch the crates beforehand
+      - name: Vendor crates
+        run: |
+          mkdir -p .cargo
+          cargo vendor --locked vendor > .cargo/config.toml
 
       - name: Build Flatpak
         run: |
