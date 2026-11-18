@@ -1,17 +1,15 @@
 [package]
 name = "gtk-markdown-viewer"
-version = "1.1.0"
+version = "2.0.0"
 edition = "2024"
 
 [dependencies]
-gtk4 = { version = "0.10", features = ["v4_10"] }
-gio = "0.21"
-glib = "0.21"
-sourceview5 = { version = "0.10", features = ["v5_4"] }
-pulldown-cmark = "0.13"
-webkit6 = "0.5"
+gtk4 = { version = "0.11", features = ["v4_12"] }
+sourceview5 = { version = "0.11", features = ["v5_4"] }
+pulldown-cmark = "0.13.6"
+webkit6 = "0.6"
 
 [dependencies.adw]
 package = "libadwaita"
-version = "0.8"
-features = ["v1_5", "v1_8"]
+version = "0.9"
+features = ["v1_8"]

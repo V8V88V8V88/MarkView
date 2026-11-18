@@ -10,10 +10,11 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-24.04
-    # Ubuntu 24.04 ships libadwaita 1.5, but the project links against 1.8.
-    # Build inside Ubuntu 25.10 (questing), which has libadwaita 1.8.
-    container: ubuntu:25.10
+    runs-on: ubuntu-latest
+    # The runner's own Ubuntu ships too old a libadwaita, so build inside
+    # Ubuntu 26.04 LTS (GNOME 50: GTK 4.22, libadwaita 1.9), which covers the
+    # GTK 4.12 / libadwaita 1.8 / GtkSourceView 5.4 floor set in Cargo.toml.
+    container: ubuntu:26.04
     steps:
       - name: Install system dependencies
         run: |
@@ -30,7 +31,7 @@ jobs:
             libjavascriptcoregtk-6.0-dev \
             libgtksourceview-5-dev
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -43,12 +44,14 @@ jobs:
           mkdir -p markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu
           cp target/release/gtk-markdown-viewer markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu/markview
           cp LICENSE README.md markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu/
+          cp -r data markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu/
           tar czvf markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-linux
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Flatpak
         run: |
@@ -67,9 +70,9 @@ jobs:
       - name: Add Flathub
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.gnome.Platform//49 org.gnome.Sdk//49
-          # GNOME 49 is built on freedesktop SDK 25.08
-          flatpak install --user -y flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
+          flatpak install --user -y flathub org.gnome.Platform//51 org.gnome.Sdk//51
+          # GNOME 51 is built on freedesktop SDK 26.08
+          flatpak install --user -y flathub org.freedesktop.Sdk.Extension.rust-stable//26.08
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -90,7 +93,7 @@ jobs:
           flatpak build-bundle repo MarkView-${{ github.ref_name }}.flatpak io.github.v8v88v8v88.MarkView
 
       - name: Upload Flatpak to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: MarkView-${{ github.ref_name }}.flatpak
           append_body: true

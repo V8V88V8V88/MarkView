@@ -1,91 +1,112 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use adw::StyleManager;
-use gtk4::gio;
-use pulldown_cmark::{html, Options, Parser};
-use sourceview5::Buffer as SourceBuffer;
-use webkit6::prelude::*;
-use webkit6::WebView;
+use gtk4::pango;
+use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
 
 use crate::config::*;
-use crate::utils::*;
+use crate::styles::{theme_variables, PreviewTheme, PREVIEW_CSS};
+use crate::utils::html_escape;
 
-pub fn refresh_preview(
-    webview: &WebView,
-    buffer: &SourceBuffer,
-    current_file: &Rc<RefCell<Option<gio::File>>>,
-    is_first_render: &Rc<RefCell<bool>>,
-    force_full_reload: bool,
-) {
-    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-    
-    let metadata_mode = load_pref(PREF_SHOW_METADATA, DEFAULT_SHOW_METADATA);
+#[derive(Clone, Copy, PartialEq)]
+enum Metadata {
+    Show,
+    Hide,
+    Ignore,
+}
+
+fn metadata_mode() -> Metadata {
+    match load_pref(PREF_SHOW_METADATA, DEFAULT_SHOW_METADATA).as_str() {
+        "hide" => Metadata::Hide,
+        "ignore" => Metadata::Ignore,
+        _ => Metadata::Show,
+    }
+}
+
+pub fn render_markdown(text: &str) -> String {
+    let mode = metadata_mode();
+
     let mut options = Options::all();
-    
-    if metadata_mode == "ignore" {
+    options.remove(Options::ENABLE_OLD_FOOTNOTES);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    if mode == Metadata::Ignore {
         options.remove(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+        options.remove(Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS);
     }
 
-    let parser = Parser::new_ext(&text, options);
-    let mut html_out = String::new();
-    
-    if metadata_mode == "show" || metadata_mode == "hide" {
-        let mut events = Vec::new();
-        let mut in_metadata = false;
-        for event in parser {
-            match event {
-                pulldown_cmark::Event::Start(pulldown_cmark::Tag::MetadataBlock(_)) => {
-                    in_metadata = true;
-                    if metadata_mode == "show" {
-                        events.push(pulldown_cmark::Event::Html("<div class=\"metadata\">".into()));
-                    }
-                }
-                pulldown_cmark::Event::End(pulldown_cmark::TagEnd::MetadataBlock(_)) => {
-                    in_metadata = false;
-                    if metadata_mode == "show" {
-                        events.push(pulldown_cmark::Event::Html("</div>".into()));
-                    }
-                }
-                pulldown_cmark::Event::Text(t) => {
-                    if in_metadata {
-                        if metadata_mode == "show" {
-                            events.push(pulldown_cmark::Event::Html(html_escape(&t).into()));
-                        }
-                    } else {
-                        events.push(pulldown_cmark::Event::Text(t));
-                    }
-                }
-                _ => {
-                    if !in_metadata {
-                        events.push(event);
-                    }
-                }
-            }
+    let mut in_metadata = false;
+    let events = Parser::new_ext(text, options).filter_map(|event| match event {
+        Event::Start(Tag::MetadataBlock(_)) => {
+            in_metadata = true;
+            (mode == Metadata::Show).then_some(Event::Html(CowStr::Borrowed("<div class=\"metadata\">")))
         }
-        html::push_html(&mut html_out, events.into_iter());
-    } else {
-        html::push_html(&mut html_out, parser);
+        Event::End(TagEnd::MetadataBlock(_)) => {
+            in_metadata = false;
+            (mode == Metadata::Show).then_some(Event::Html(CowStr::Borrowed("</div>")))
+        }
+        Event::Text(t) if in_metadata => {
+            (mode == Metadata::Show).then_some(Event::Html(html_escape(&t).into()))
+        }
+        _ if in_metadata => None,
+        other => Some(other),
+    });
+
+    let mut out = String::with_capacity(text.len() * 3 / 2);
+    html::push_html(&mut out, events);
+    if out.trim().is_empty() {
+        out = "<p class=\"placeholder\">Start typing Markdown in the editor\u{2026}</p>".into();
     }
+    out
+}
 
-    let dom_injection = load_pref(PREF_DOM_INJECTION, DEFAULT_DOM_INJECTION) == "true";
-    let dark = StyleManager::default().is_dark();
-    let first = *is_first_render.borrow();
+fn font_from_pango(name: &str) -> (String, f64) {
+    let desc = pango::FontDescription::from_string(name);
+    let family = desc
+        .family()
+        .map(|f| f.to_string())
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| "Adwaita Sans".into());
+    let size = desc.size();
+    let points = if size > 0 { size as f64 / pango::SCALE as f64 } else { 11.0 };
+    let px = if desc.is_size_absolute() { points } else { points * 96.0 / 72.0 };
+    (family, px)
+}
 
-    let body = if html_out.is_empty() {
-        "<p class='placeholder'>Start typing markdown on the left\u{2026}</p>".to_string()
+pub fn current_theme() -> PreviewTheme {
+    let sm = StyleManager::default();
+    let accent = sm.accent_color_rgba();
+    let (font_family, font_size_px) = font_from_pango(&sm.document_font_name());
+    let (mono_family, _) = font_from_pango(&sm.monospace_font_name());
+    PreviewTheme {
+        dark: sm.is_dark(),
+        accent: format!(
+            "rgb({} {} {})",
+            (accent.red() * 255.0).round(),
+            (accent.green() * 255.0).round(),
+            (accent.blue() * 255.0).round()
+        ),
+        font_family,
+        font_size_px: font_size_px * 1.05,
+        mono_family,
+    }
+}
+
+pub fn build_page(body: &str, theme: &PreviewTheme) -> String {
+    let readable_css = if pref_bool(PREF_READABLE_LINE, DEFAULT_READABLE_LINE == "true") {
+        let max_width = load_pref(PREF_MAX_WIDTH, DEFAULT_MAX_WIDTH)
+            .parse::<u32>()
+            .unwrap_or(1000)
+            .clamp(400, 3000);
+        format!("body {{ max-width: {max_width}px; margin: 0 auto; }}")
     } else {
-        html_out
+        String::new()
     };
 
-    if dom_injection && !first && !force_full_reload {
-        let escaped_html = escape_javascript_string(&body);
-        let js = format!("document.body.innerHTML = `{}`;", escaped_html);
-        webview.evaluate_javascript(&js, None, None, None::<&gio::Cancellable>, |_| {});
-    } else {
-        let base_uri = base_uri_for_preview(current_file.borrow().as_ref());
-        webview.load_html(&build_html_page(&body, dark), base_uri.as_deref());
-        let (r, g, b) = if dark { (0.102, 0.102, 0.102) } else { (0.98, 0.98, 0.98) };
-        webview.set_background_color(&gtk4::gdk::RGBA::new(r, g, b, 1.0));
-        *is_first_render.borrow_mut() = false;
-    }
+    format!(
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\">\
+         <meta name=\"color-scheme\" content=\"light dark\">\
+         <style>{}{}{}</style></head><body>{}</body></html>",
+        theme_variables(theme),
+        PREVIEW_CSS,
+        readable_css,
+        body
+    )
 }

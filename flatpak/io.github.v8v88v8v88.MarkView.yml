@@ -1,6 +1,6 @@
 app-id: io.github.v8v88v8v88.MarkView
 runtime: org.gnome.Platform
-runtime-version: '49'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -14,6 +14,7 @@ modules:
       - install -Dm755 target/release/gtk-markdown-viewer /app/bin/markview
       - mkdir -p /app/share/gtksourceview-5/styles
       - install -Dm644 data/styles/*.xml /app/share/gtksourceview-5/styles/
+      - install -Dm644 data/icons/hicolor/256x256/apps/io.github.v8v88v8v88.MarkView.png /app/share/icons/hicolor/256x256/apps/io.github.v8v88v8v88.MarkView.png
     sources:
       - type: dir
         path: ..
@@ -23,11 +24,8 @@ modules:
 finish-args:
   - --share=ipc
   - --device=dri
-  - --socket=session-bus
   - --socket=fallback-x11
   - --socket=wayland
-  - --socket=pulseaudio
   - --share=network
   - --filesystem=xdg-documents
   - --filesystem=xdg-download
-  - --metadata=X-D-Bus-Name=io.github.v8v88v8v88.MarkView

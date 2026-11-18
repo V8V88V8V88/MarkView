@@ -1,492 +1,467 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use adw::prelude::*;
 use adw::{
-    ActionRow, Application, ApplicationWindow, ColorScheme, ComboRow, PreferencesDialog,
-    PreferencesGroup, PreferencesPage, StyleManager, SwitchRow, SpinRow,
+    ActionRow, ButtonRow, ColorScheme, ComboRow, ExpanderRow, PreferencesDialog, PreferencesGroup,
+    PreferencesPage, ShortcutLabel, SpinRow, StyleManager, SwitchRow, Toggle, ToggleGroup,
 };
-use gtk4::{gio, Box, Button, Orientation, PropertyExpression, StringObject, EventControllerKey, PropagationPhase};
-use std::cell::RefCell;
-use std::rc::Rc;
-use sourceview5::prelude::*;
-use sourceview5::{Buffer as SourceBuffer, View as SourceView, VimIMContext};
+use adw::Application;
+use gtk4::{gdk, gio, glib, EventControllerKey, FlowBox, PropagationPhase, StringList};
+use sourceview5::StyleSchemePreview;
 
 use crate::config::*;
-use crate::utils::html_escape;
+use crate::ui::schemes;
+use crate::ui::window::apply_settings_to_all_windows;
 
-type PreviewFn = Rc<dyn Fn(&SourceBuffer, bool)>;
+pub fn color_scheme_from_pref() -> ColorScheme {
+    match load_pref(PREF_THEME, DEFAULT_THEME).as_str() {
+        "force-dark" => ColorScheme::ForceDark,
+        "force-light" => ColorScheme::ForceLight,
+        _ => ColorScheme::Default,
+    }
+}
 
-pub fn show_preferences_dialog(
-    parent_win: &ApplicationWindow,
-    source_view: &SourceView,
-    source_buffer: &SourceBuffer,
-    vim_controller: &Rc<RefCell<Option<EventControllerKey>>>,
-    app: &Application,
-    refresh_preview: PreviewFn,
-) {
-    let theme_model = gio::ListStore::new::<StringObject>();
-    theme_model.append(&StringObject::new("Auto"));
-    theme_model.append(&StringObject::new("Dark"));
-    theme_model.append(&StringObject::new("Light"));
-    let theme_expr = PropertyExpression::new(StringObject::static_type(), None::<&gtk4::Expression>, "string");
-    let theme_row = ComboRow::builder()
-        .title("Theme")
-        .subtitle("Application appearance")
-        .model(&theme_model)
-        .expression(&theme_expr)
+fn switch_row(title: &str, subtitle: &str, key: &'static str, default: bool) -> SwitchRow {
+    let row = SwitchRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .active(pref_bool(key, default))
         .build();
-    let saved_theme = load_pref(PREF_THEME, DEFAULT_THEME);
-    theme_row.set_selected(match saved_theme.as_str() {
-        "force-dark" => 1,
-        "force-light" => 2,
-        _ => 0,
+    row.connect_active_notify(move |row| {
+        save_pref_bool(key, row.is_active());
+        apply_settings_to_all_windows();
     });
-    let style_mgr = StyleManager::default();
-    theme_row.connect_selected_notify({
-        let style_mgr = style_mgr.clone();
-        move |row| {
-            let scheme = match row.selected() {
-                1 => ColorScheme::ForceDark,
-                2 => ColorScheme::ForceLight,
-                _ => ColorScheme::Default,
-            };
-            style_mgr.set_color_scheme(scheme);
-            save_pref(
-                PREF_THEME,
-                match scheme {
-                    ColorScheme::ForceDark => "force-dark",
-                    ColorScheme::ForceLight => "force-light",
-                    _ => "default",
-                },
-            );
-        }
-    });
+    row
+}
 
-    let scheme_mgr = sourceview5::StyleSchemeManager::default();
-    scheme_mgr.append_search_path("data/styles");
-    let mut all_ids: Vec<_> = scheme_mgr.scheme_ids();
-    all_ids.sort_by_key(|a| a.to_lowercase());
-    let scheme_model = gio::ListStore::new::<StringObject>();
-    let mut scheme_ids = Vec::new();
-    for id in all_ids.iter() {
-        if let Some(scheme) = scheme_mgr.scheme(id.as_str()) {
-            scheme_model.append(&StringObject::new(scheme.name().as_ref()));
-            scheme_ids.push(id.to_string());
-        }
-    }
-    if scheme_ids.is_empty() {
-        for id in all_ids.iter().take(10) {
-            if let Some(scheme) = scheme_mgr.scheme(id.as_str()) {
-                scheme_model.append(&StringObject::new(scheme.name().as_ref()));
-                scheme_ids.push(id.to_string());
-            }
-        }
-    }
-    if scheme_ids.is_empty() {
-        scheme_model.append(&StringObject::new("Adwaita dark"));
-        scheme_ids.push("Adwaita-dark".to_string());
-    }
-    let scheme_expr = PropertyExpression::new(StringObject::static_type(), None::<&gtk4::Expression>, "string");
-    let scheme_row = ComboRow::builder()
-        .title("Editor color scheme")
-        .subtitle("Syntax highlighting theme")
-        .model(&scheme_model)
-        .expression(&scheme_expr)
+fn combo_row(
+    title: &str,
+    subtitle: &str,
+    key: &'static str,
+    default: &str,
+    options: &'static [(&'static str, &'static str)],
+) -> ComboRow {
+    let labels: Vec<&str> = options.iter().map(|(_, label)| *label).collect();
+    let saved = load_pref(key, default);
+    let row = ComboRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .model(&StringList::new(&labels))
+        .selected(options.iter().position(|(v, _)| *v == saved).unwrap_or(0) as u32)
         .build();
-    let saved_scheme = load_pref(PREF_SCHEME, DEFAULT_SCHEME);
-    let scheme_idx = scheme_ids.iter().position(|s| s == &saved_scheme).unwrap_or(0);
-    scheme_row.set_selected(scheme_idx as u32);
-    let scheme_ids = Rc::new(scheme_ids);
-    scheme_row.connect_selected_notify({
-        let sb = source_buffer.clone();
-        let scheme_ids = scheme_ids.clone();
-        move |row| {
-            let idx = row.selected() as usize;
-            if let Some(id) = scheme_ids.get(idx) {
-                let mgr = sourceview5::StyleSchemeManager::default();
-                if let Some(scheme) = mgr.scheme(id) {
-                    sb.set_style_scheme(Some(&scheme));
-                    save_pref(PREF_SCHEME, id);
-                }
-            }
+    row.connect_selected_notify(move |row| {
+        if let Some((value, _)) = options.get(row.selected() as usize) {
+            save_pref(key, value);
+            apply_settings_to_all_windows();
         }
     });
+    row
+}
 
-    let appearance_group = PreferencesGroup::new();
-    appearance_group.set_title("Appearance");
-    appearance_group.add(&theme_row);
-    appearance_group.add(&scheme_row);
-    let appearance_page = PreferencesPage::builder()
+fn spin_row(
+    title: &str,
+    subtitle: &str,
+    key: &'static str,
+    default: &str,
+    range: (f64, f64, f64),
+) -> SpinRow {
+    let value = load_pref(key, default).parse::<f64>().unwrap_or(range.0);
+    let row = SpinRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .adjustment(&gtk4::Adjustment::new(value, range.0, range.1, range.2, range.2 * 10.0, 0.0))
+        .build();
+    row.connect_value_notify(move |row| {
+        save_pref(key, &format!("{:.0}", row.value()));
+        apply_settings_to_all_windows();
+    });
+    row
+}
+
+fn appearance_page() -> PreferencesPage {
+    let page = PreferencesPage::builder()
         .title("Appearance")
-        .icon_name("preferences-desktop-theme-symbolic")
+        .icon_name("applications-graphics-symbolic")
         .build();
-    appearance_page.add(&appearance_group);
 
-    let vim_row = SwitchRow::builder()
-        .title("Vim keybindings")
-        .subtitle("Use Vim-style keybindings in the editor")
-        .active(false)
+    let style_group = PreferencesGroup::new();
+    let toggles = ToggleGroup::builder().valign(gtk4::Align::Center).build();
+    for (name, label) in [("default", "Follow System"), ("force-light", "Light"), ("force-dark", "Dark")] {
+        toggles.add(Toggle::builder().name(name).label(label).build());
+    }
+    toggles.set_active_name(Some(&load_pref(PREF_THEME, DEFAULT_THEME)));
+    toggles.connect_active_name_notify(|t| {
+        if let (Some(name), Some(app)) = (t.active_name(), gio::Application::default()) {
+            app.activate_action("color-scheme", Some(&name.to_variant()));
+        }
+    });
+    let style_row = ActionRow::builder().title("Style").build();
+    style_row.add_suffix(&toggles);
+    style_group.add(&style_row);
+    page.add(&style_group);
+
+    let scheme_group = PreferencesGroup::builder()
+        .title("Editor Color Scheme")
+        .description("The light or dark version is picked to match the style")
         .build();
-    let line_numbers_row = SwitchRow::builder()
-        .title("Show line numbers")
-        .subtitle("Display line numbers in the gutter")
-        .active(true)
+    let flow = FlowBox::builder()
+        .selection_mode(gtk4::SelectionMode::None)
+        .column_spacing(12)
+        .row_spacing(12)
+        .min_children_per_line(2)
+        .max_children_per_line(4)
+        .homogeneous(true)
         .build();
-    let word_wrap_row = SwitchRow::builder()
-        .title("Word wrap")
-        .subtitle("Wrap long lines at word boundaries")
-        .active(true)
+    scheme_group.add(&flow);
+    let expanded = Rc::new(Cell::new(false));
+    let more = gtk4::Button::builder()
+        .label("Show All")
+        .halign(gtk4::Align::Center)
+        .margin_top(12)
+        .css_classes(["pill"])
         .build();
-    vim_row.set_active(vim_controller.borrow().is_some());
-    line_numbers_row.set_active(source_view.shows_line_numbers());
-    word_wrap_row.set_active(source_view.wrap_mode() == gtk4::WrapMode::Word);
-    vim_row.connect_active_notify({
-        let sv = source_view.clone();
-        let vc = vim_controller.clone();
-        move |row| {
-            save_pref(PREF_VIM_MODE, if row.is_active() { "true" } else { "false" });
-            if row.is_active() {
-                let vim_ctx = VimIMContext::new();
-                vim_ctx.set_client_widget(Some(&sv));
-                let key_ctrl = EventControllerKey::new();
-                key_ctrl.set_propagation_phase(PropagationPhase::Capture);
-                key_ctrl.set_im_context(Some(&vim_ctx));
-                let ctrl_clone = key_ctrl.clone();
-                sv.add_controller(ctrl_clone);
-                *vc.borrow_mut() = Some(key_ctrl);
-            } else if let Some(ref ctrl) = *vc.borrow() {
-                sv.remove_controller(ctrl);
-                *vc.borrow_mut() = None;
+    scheme_group.add(&more);
+    let collapse: Rc<dyn Fn()> = Rc::new({
+        let flow = flow.clone();
+        let more = more.clone();
+        let expanded = expanded.clone();
+        move || {
+            const SHOWN: usize = 6;
+            let mut tiles = Vec::new();
+            let mut child = flow.first_child();
+            while let Some(c) = child {
+                child = c.next_sibling();
+                tiles.push(c);
             }
-        }
-    });
-    line_numbers_row.connect_active_notify({
-        let sv = source_view.clone();
-        let refresh_preview = refresh_preview.clone();
-        let sb = source_buffer.clone();
-        move |row| {
-            save_pref(PREF_LINE_NUMBERS, if row.is_active() { "true" } else { "false" });
-            sv.set_show_line_numbers(row.is_active());
-            refresh_preview(&sb, true);
-        }
-    });
-    word_wrap_row.connect_active_notify({
-        let sv = source_view.clone();
-        move |row| {
-            save_pref(PREF_WORD_WRAP, if row.is_active() { "true" } else { "false" });
-            sv.set_wrap_mode(if row.is_active() {
-                gtk4::WrapMode::Word
-            } else {
-                gtk4::WrapMode::None
+            let selected = tiles.iter().position(|c| {
+                c.first_child()
+                    .and_then(|b| b.first_child())
+                    .and_downcast::<StyleSchemePreview>()
+                    .is_some_and(|p| p.is_selected())
             });
+            let expanded_now = expanded.get();
+            flow.set_filter_func(move |child| {
+                let i = child.index() as usize;
+                expanded_now
+                    || match selected {
+                        Some(s) if s >= SHOWN => i < SHOWN - 1 || i == s,
+                        _ => i < SHOWN,
+                    }
+            });
+            more.set_visible(tiles.len() > SHOWN);
+            more.set_label(if expanded.get() { "Show Less" } else { "Show All" });
         }
     });
-    let editor_group = PreferencesGroup::new();
-    editor_group.add(&vim_row);
-    editor_group.add(&line_numbers_row);
-    editor_group.add(&word_wrap_row);
-    let editor_page = PreferencesPage::builder()
-        .title("Editor")
-        .icon_name("accessories-text-editor-symbolic")
-        .build();
-    editor_page.add(&editor_group);
-
-    // Synchronization Page
-    let sync_group = PreferencesGroup::new();
-    sync_group.set_title("Synchronization");
-
-    let sync_scroll_row = SwitchRow::builder()
-        .title("Sync Scroll")
-        .subtitle("Preview pane follows editor scroll")
-        .active(load_pref(PREF_SYNC_SCROLL, DEFAULT_SYNC_SCROLL) == "true")
-        .build();
-    sync_scroll_row.connect_active_notify(|row| {
-        save_pref(PREF_SYNC_SCROLL, if row.is_active() { "true" } else { "false" });
+    more.connect_clicked({
+        let collapse = collapse.clone();
+        let expanded = expanded.clone();
+        move |_| {
+            expanded.set(!expanded.get());
+            collapse();
+        }
     });
+    page.add(&scheme_group);
 
-    let dom_injection_row = SwitchRow::builder()
-        .title("DOM Injection")
-        .subtitle("Smoothly update preview without reloading")
-        .active(load_pref(PREF_DOM_INJECTION, DEFAULT_DOM_INJECTION) == "true")
-        .build();
-    dom_injection_row.connect_active_notify(|row| {
-        save_pref(PREF_DOM_INJECTION, if row.is_active() { "true" } else { "false" });
+    let fill: Rc<dyn Fn()> = Rc::new({
+        let flow = flow.clone();
+        let collapse = collapse.clone();
+        move || {
+            flow.remove_all();
+            let selected = schemes::saved_family();
+            for scheme in schemes::schemes_for(StyleManager::default().is_dark()) {
+                let preview = StyleSchemePreview::new(&scheme);
+                preview.set_selected(schemes::family_of(&scheme.id()) == selected);
+                let flow_inner = flow.clone();
+                preview.connect_activate(move |p| {
+                    save_pref(PREF_SCHEME, schemes::family_of(&p.scheme().id()));
+                    let mut child = flow_inner.first_child();
+                    while let Some(c) = child {
+                        if let Some(other) = c
+                            .first_child()
+                            .and_then(|b| b.first_child())
+                            .and_downcast::<StyleSchemePreview>()
+                        {
+                            other.set_selected(&other == p);
+                        }
+                        child = c.next_sibling();
+                    }
+                    apply_settings_to_all_windows();
+                });
+                let label = gtk4::Label::builder()
+                    .label(schemes::family_name(&scheme))
+                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                    .css_classes(["caption"])
+                    .build();
+                let tile = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+                tile.append(&preview);
+                tile.append(&label);
+                flow.append(&tile);
+            }
+            collapse();
+        }
     });
-
-    let debounce_adjustment = gtk4::Adjustment::new(
-        load_pref(PREF_DEBOUNCE, DEFAULT_DEBOUNCE).parse::<f64>().unwrap_or(150.0),
-        0.0, 5000.0, 10.0, 100.0, 0.0
-    );
-    let debounce_row = SpinRow::builder()
-        .title("Debounce Duration (ms)")
-        .subtitle("Delay before updating preview (0 for live)")
-        .adjustment(&debounce_adjustment)
-        .build();
-    debounce_row.connect_value_notify(|row| {
-        save_pref(PREF_DEBOUNCE, &format!("{:.0}", row.value()));
+    fill();
+    let handler = StyleManager::default().connect_dark_notify({
+        let fill = fill.clone();
+        move |_| fill()
     });
-
-    sync_group.add(&sync_scroll_row);
-    sync_group.add(&dom_injection_row);
-    sync_group.add(&debounce_row);
-
-    let sync_page = PreferencesPage::builder()
-        .title("Synchronization")
-        .icon_name("view-refresh-symbolic")
-        .build();
-    sync_page.add(&sync_group);
-
-    // Interface Page
-    let ui_group = PreferencesGroup::new();
-    ui_group.set_title("Interface");
-
-    let metadata_model = gio::ListStore::new::<StringObject>();
-    metadata_model.append(&StringObject::new("Show Metadata"));
-    metadata_model.append(&StringObject::new("Hide Metadata"));
-    metadata_model.append(&StringObject::new("Ignore Metadata"));
-    let metadata_expr = PropertyExpression::new(StringObject::static_type(), None::<&gtk4::Expression>, "string");
-    let metadata_row = ComboRow::builder()
-        .title("Metadata Handling")
-        .subtitle("How to treat YAML headers")
-        .model(&metadata_model)
-        .expression(&metadata_expr)
-        .build();
-    let saved_metadata = load_pref(PREF_SHOW_METADATA, DEFAULT_SHOW_METADATA);
-    metadata_row.set_selected(match saved_metadata.as_str() {
-        "hide" => 1,
-        "ignore" => 2,
-        _ => 0,
-    });
-    metadata_row.connect_selected_notify({
-        let refresh_preview = refresh_preview.clone();
-        let sb = source_buffer.clone();
-        move |row| {
-            save_pref(
-                PREF_SHOW_METADATA,
-                match row.selected() {
-                    1 => "hide",
-                    2 => "ignore",
-                    _ => "show",
-                },
-            );
-            refresh_preview(&sb, true);
+    let handler = Cell::new(Some(handler));
+    page.connect_destroy(move |_| {
+        if let Some(h) = handler.take() {
+            StyleManager::default().disconnect(h);
         }
     });
 
-    let view_model = gio::ListStore::new::<StringObject>();
-    view_model.append(&StringObject::new("Dual Pane"));
-    view_model.append(&StringObject::new("Preview Only"));
-    let view_expr = PropertyExpression::new(StringObject::static_type(), None::<&gtk4::Expression>, "string");
-    let view_row = ComboRow::builder()
-        .title("Default View Mode")
-        .subtitle("Initial layout when opening a file")
-        .model(&view_model)
-        .expression(&view_expr)
-        .build();
-    let saved_view = load_pref(PREF_DEFAULT_VIEW, DEFAULT_VIEW);
-    view_row.set_selected(match saved_view.as_str() {
-        "preview-only" => 1,
-        _ => 0,
-    });
-    view_row.connect_selected_notify({
-        let refresh_preview = refresh_preview.clone();
-        let sb = source_buffer.clone();
-        move |row| {
-            save_pref(
-                PREF_DEFAULT_VIEW,
-                match row.selected() {
-                    1 => "preview-only",
-                    _ => "dual-pane",
-                },
-            );
-            refresh_preview(&sb, true);
-        }
-    });
-
-    let readable_row = SwitchRow::builder()
+    let preview_group = PreferencesGroup::builder().title("Preview").build();
+    let readable = ExpanderRow::builder()
         .title("Readable Line Length")
-        .subtitle("Limit preview content width for better readability")
-        .active(load_pref(PREF_READABLE_LINE, DEFAULT_READABLE_LINE) == "true")
+        .subtitle("Limit how wide the preview text can get")
+        .show_enable_switch(true)
+        .enable_expansion(pref_bool(PREF_READABLE_LINE, DEFAULT_READABLE_LINE == "true"))
+        .build();
+    readable.connect_enable_expansion_notify(|row| {
+        save_pref_bool(PREF_READABLE_LINE, row.enables_expansion());
+        apply_settings_to_all_windows();
+    });
+    readable.add_row(&spin_row(
+        "Maximum Width",
+        "In pixels",
+        PREF_MAX_WIDTH,
+        DEFAULT_MAX_WIDTH,
+        (400.0, 3000.0, 50.0),
+    ));
+    preview_group.add(&readable);
+    page.add(&preview_group);
+
+    page
+}
+
+fn editor_page() -> PreferencesPage {
+    let page = PreferencesPage::builder()
+        .title("Editor")
+        .icon_name("document-edit-symbolic")
         .build();
 
-    let width_adjustment = gtk4::Adjustment::new(
-        load_pref(PREF_MAX_WIDTH, DEFAULT_MAX_WIDTH).parse::<f64>().unwrap_or(1000.0),
-        400.0, 3000.0, 50.0, 200.0, 0.0
-    );
-    let width_row = SpinRow::builder()
-        .title("Max Content Width (px)")
-        .subtitle("Maximum width when Readable Line Length is enabled")
-        .adjustment(&width_adjustment)
-        .sensitive(readable_row.is_active())
+    let display = PreferencesGroup::builder().title("Display").build();
+    display.add(&switch_row("Line Numbers", "Show line numbers in the gutter", PREF_LINE_NUMBERS, DEFAULT_LINE_NUMBERS == "true"));
+    display.add(&switch_row("Highlight Current Line", "Shade the line the cursor is on", PREF_HIGHLIGHT_LINE, DEFAULT_HIGHLIGHT_LINE == "true"));
+    display.add(&switch_row("Text Wrapping", "Wrap long lines at word boundaries", PREF_WORD_WRAP, DEFAULT_WORD_WRAP == "true"));
+    page.add(&display);
+
+    let behavior = PreferencesGroup::builder().title("Behavior").build();
+    behavior.add(&switch_row("Hide Header Bar While Typing", "Move the pointer to bring it back", PREF_AUTOHIDE_HEADER, DEFAULT_AUTOHIDE_HEADER == "true"));
+    behavior.add(&switch_row("Vim Keybindings", "Edit with Vim-style modes and motions", PREF_VIM_MODE, DEFAULT_VIM_MODE == "true"));
+    page.add(&behavior);
+
+    page
+}
+
+fn preview_page() -> PreferencesPage {
+    let page = PreferencesPage::builder()
+        .title("Preview")
+        .icon_name("view-reveal-symbolic")
         .build();
 
-    readable_row.connect_active_notify({
-        let refresh_preview = refresh_preview.clone();
-        let sb = source_buffer.clone();
-        let width_row = width_row.clone();
-        move |row| {
-            let active = row.is_active();
-            save_pref(PREF_READABLE_LINE, if active { "true" } else { "false" });
-            width_row.set_sensitive(active);
-            refresh_preview(&sb, true);
+    let layout = PreferencesGroup::builder().title("Layout").build();
+    layout.add(&combo_row(
+        "Layout on Startup",
+        "How new windows are arranged",
+        PREF_DEFAULT_VIEW,
+        DEFAULT_VIEW,
+        &[("dual-pane", "Split"), ("preview-only", "Preview Only"), ("editor-only", "Editor Only")],
+    ));
+    layout.add(&switch_row("Scroll Together", "The preview follows the editor as you scroll", PREF_SYNC_SCROLL, DEFAULT_SYNC_SCROLL == "true"));
+    page.add(&layout);
+
+    let rendering = PreferencesGroup::builder().title("Rendering").build();
+    rendering.add(&combo_row(
+        "Front Matter",
+        "How YAML metadata at the top of a document is treated",
+        PREF_SHOW_METADATA,
+        DEFAULT_SHOW_METADATA,
+        &[("show", "Show"), ("hide", "Hide"), ("ignore", "Render as Text")],
+    ));
+    rendering.add(&switch_row("Update in Place", "Refresh the preview without reloading the page", PREF_DOM_INJECTION, DEFAULT_DOM_INJECTION == "true"));
+    rendering.add(&spin_row(
+        "Update Delay",
+        "Milliseconds to wait after typing before refreshing",
+        PREF_DEBOUNCE,
+        DEFAULT_DEBOUNCE,
+        (0.0, 5000.0, 10.0),
+    ));
+    page.add(&rendering);
+
+    page
+}
+
+fn is_modifier(key: gdk::Key) -> bool {
+    use gdk::Key;
+    matches!(
+        key,
+        Key::Shift_L | Key::Shift_R | Key::Control_L | Key::Control_R | Key::Alt_L | Key::Alt_R
+            | Key::Super_L | Key::Super_R | Key::Meta_L | Key::Meta_R | Key::Hyper_L | Key::Hyper_R
+            | Key::ISO_Level3_Shift | Key::Caps_Lock
+    )
+}
+
+fn accel_for(s: &Shortcut) -> String {
+    load_pref(s.pref_key, s.default)
+}
+
+fn same_accel(a: &str, b: &str) -> bool {
+    match (gtk4::accelerator_parse(a), gtk4::accelerator_parse(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
+fn capture_shortcut(row: &ActionRow, label: &ShortcutLabel, app: &Application, shortcut: &'static Shortcut) {
+    let dialog = adw::Dialog::builder()
+        .title("Set Shortcut")
+        .content_width(400)
+        .build();
+    let error = gtk4::Label::builder()
+        .css_classes(["error"])
+        .visible(false)
+        .build();
+    let status = adw::StatusPage::builder()
+        .icon_name("preferences-desktop-keyboard-shortcuts-symbolic")
+        .title(shortcut.title)
+        .description("Press the new key combination.\nEsc cancels, Backspace disables the shortcut.")
+        .css_classes(["compact"])
+        .child(&error)
+        .build();
+    let reset = gtk4::Button::builder()
+        .label("Reset to Default")
+        .halign(gtk4::Align::Center)
+        .css_classes(["pill"])
+        .margin_bottom(24)
+        .build();
+    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    content.append(&status);
+    content.append(&reset);
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&content));
+    dialog.set_child(Some(&toolbar));
+
+    let commit: Rc<dyn Fn(&str)> = Rc::new({
+        let dialog = dialog.clone();
+        let label = label.clone();
+        let app = app.clone();
+        move |accel: &str| {
+            save_pref(shortcut.pref_key, accel);
+            label.set_accelerator(accel);
+            crate::apply_accels(&app);
+            dialog.close();
         }
     });
-    width_row.connect_value_notify({
-        let refresh_preview = refresh_preview.clone();
-        let sb = source_buffer.clone();
-        move |row| {
-            save_pref(PREF_MAX_WIDTH, &format!("{:.0}", row.value()));
-            refresh_preview(&sb, true);
-        }
+
+    reset.connect_clicked({
+        let commit = commit.clone();
+        move |_| commit(shortcut.default)
     });
 
-    ui_group.add(&metadata_row);
-    ui_group.add(&view_row);
-    ui_group.add(&readable_row);
-    ui_group.add(&width_row);
-
-    let ui_page = PreferencesPage::builder()
-        .title("Interface")
-        .icon_name("window-new-symbolic")
-        .build();
-    ui_page.add(&ui_group);
-
-    // Shortcuts Page
-    let shortcuts_group = PreferencesGroup::new();
-    shortcuts_group.set_title("Keyboard Shortcuts");
-
-    let create_shortcut_row = |title: &str, pref_key: &'static str, default: &str, app: Application, parent_win: &ApplicationWindow| {
-        let initial_subtitle = html_escape(&load_pref(pref_key, default));
-        let escaped_title = html_escape(title);
-        let row = ActionRow::builder()
-            .title(&escaped_title)
-            .subtitle(&initial_subtitle)
-            .use_markup(true)
-            .build();
-        
-        let edit_button = Button::builder()
-            .label("Edit")
-            .valign(gtk4::Align::Center)
-            .build();
-
-        let app_clone = app.clone();
-        let parent_win_clone = parent_win.clone();
-        let row_clone = row.clone();
-        let default_owned = default.to_string();
-        let title_owned = title.to_string();
-
-        edit_button.connect_clicked(move |_| {
-            let grabber = adw::Window::builder()
-                .title("Grab Shortcut")
-                .modal(true)
-                .transient_for(&parent_win_clone)
-                .default_width(300)
-                .default_height(150)
-                .build();
-
-            let content = Box::new(Orientation::Vertical, 10);
-            content.set_margin_top(20);
-            content.set_margin_bottom(20);
-            content.set_margin_start(20);
-            content.set_margin_end(20);
-            
-            let label = gtk4::Label::builder()
-                .label(format!("Press keys for: {}", title_owned))
-                .build();
-            let current_label = gtk4::Label::builder()
-                .label(html_escape(&load_pref(pref_key, &default_owned)))
-                .css_classes(vec!["title-2".to_string()])
-                .use_markup(true)
-                .build();
-            
-            let hint = gtk4::Label::builder()
-                .label("Press Enter to Save, Esc to Reset")
-                .build();
-            hint.add_css_class("dim-label");
-
-            content.append(&label);
-            content.append(&current_label);
-            content.append(&hint);
-            grabber.set_content(Some(&content));
-
-            let recorded_accel = Rc::new(RefCell::new(load_pref(pref_key, &default_owned)));
-
-            let key_ctrl = EventControllerKey::new();
-            let recorded_accel_inner = recorded_accel.clone();
-            let current_label_inner = current_label.clone();
-            let grabber_inner = grabber.clone();
-            let app_inner = app_clone.clone();
-            let row_inner = row_clone.clone();
-
-            key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
-                let key_name = key.name().unwrap_or_else(|| "unknown".into());
-
-                if key_name == "Return" {
-                    let accel = recorded_accel_inner.borrow();
-                    save_pref(pref_key, &accel);
-                    row_inner.set_subtitle(&html_escape(&accel));
-                    crate::apply_accels(&app_inner);
-                    grabber_inner.close();
-                    return glib::Propagation::Stop;
+    let keys = EventControllerKey::new();
+    keys.set_propagation_phase(PropagationPhase::Capture);
+    keys.connect_key_pressed({
+        let dialog = dialog.clone();
+        move |_, keyval, _, state| {
+            let mods = state & gtk4::accelerator_get_default_mod_mask();
+            let keyval = keyval.to_lower();
+            if mods.is_empty() {
+                match keyval {
+                    gdk::Key::Escape => {
+                        dialog.close();
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::BackSpace => {
+                        commit("");
+                        return glib::Propagation::Stop;
+                    }
+                    gdk::Key::Tab | gdk::Key::ISO_Left_Tab => return glib::Propagation::Proceed,
+                    _ => {}
                 }
+            }
+            if is_modifier(keyval) || !gtk4::accelerator_valid(keyval, mods) {
+                return glib::Propagation::Stop;
+            }
+            let accel = gtk4::accelerator_name(keyval, mods).to_string();
+            if let Some(other) = SHORTCUTS
+                .iter()
+                .find(|s| s.pref_key != shortcut.pref_key && same_accel(&accel_for(s), &accel))
+            {
+                error.set_label(&format!("Already used by “{}”", other.title));
+                error.set_visible(true);
+                return glib::Propagation::Stop;
+            }
+            commit(&accel);
+            glib::Propagation::Stop
+        }
+    });
+    dialog.add_controller(keys);
+    dialog.present(Some(row));
+}
 
-                if key_name == "Escape" {
-                    grabber_inner.close();
-                    return glib::Propagation::Stop;
-                }
-
-                if key_name.contains("Control") || key_name.contains("Shift") || 
-                   key_name.contains("Alt") || key_name.contains("Super") || key_name.contains("Meta") {
-                    return glib::Propagation::Stop;
-                }
-
-                let mut accel = String::new();
-                if modifier.contains(gtk4::gdk::ModifierType::CONTROL_MASK) { accel.push_str("<Control>"); }
-                if modifier.contains(gtk4::gdk::ModifierType::SHIFT_MASK) { accel.push_str("<Shift>"); }
-                if modifier.contains(gtk4::gdk::ModifierType::ALT_MASK) { accel.push_str("<Alt>"); }
-                if modifier.contains(gtk4::gdk::ModifierType::SUPER_MASK) || modifier.contains(gtk4::gdk::ModifierType::META_MASK) { 
-                    accel.push_str("<Super>"); 
-                }
-                
-                accel.push_str(&key_name);
-                *recorded_accel_inner.borrow_mut() = accel.clone();
-                current_label_inner.set_text(&html_escape(&accel));
-
-                glib::Propagation::Stop
-            });
-
-            grabber.add_controller(key_ctrl);
-            grabber.present();
-        });
-
-        row.add_suffix(&edit_button);
-        row
-    };
-
-    let app_clone = app.clone();
-    shortcuts_group.add(&create_shortcut_row("Open File", PREF_KEY_OPEN, DEFAULT_KEY_OPEN, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Save File", PREF_KEY_SAVE, DEFAULT_KEY_SAVE, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Save As", PREF_KEY_SAVE_AS, DEFAULT_KEY_SAVE_AS, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Export PDF", PREF_KEY_EXPORT_PDF, DEFAULT_KEY_EXPORT_PDF, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Open Preferences", PREF_KEY_PREFS, DEFAULT_KEY_PREFS, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Search & Replace", PREF_KEY_SEARCH, DEFAULT_KEY_SEARCH, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Toggle Editor Pane", PREF_KEY_TOGGLE_EDITOR, DEFAULT_KEY_TOGGLE_EDITOR, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Cycle View Modes", PREF_KEY_CYCLE_VIEW, DEFAULT_KEY_CYCLE_VIEW, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Toggle Readable Width", PREF_KEY_TOGGLE_READABLE, DEFAULT_KEY_TOGGLE_READABLE, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Keyboard Shortcuts Dialog", PREF_KEY_SHORTCUTS, DEFAULT_KEY_SHORTCUTS, app_clone.clone(), parent_win));
-    shortcuts_group.add(&create_shortcut_row("Quit", PREF_KEY_QUIT, DEFAULT_KEY_QUIT, app_clone.clone(), parent_win));
-
-    let shortcuts_page = PreferencesPage::builder()
+fn shortcuts_page(app: &Application) -> PreferencesPage {
+    let page = PreferencesPage::builder()
         .title("Shortcuts")
         .icon_name("preferences-desktop-keyboard-shortcuts-symbolic")
         .build();
-    shortcuts_page.add(&shortcuts_group);
 
+    let mut labels = Vec::new();
+    let mut sections: Vec<&str> = SHORTCUTS.iter().map(|s| s.section).collect();
+    sections.dedup();
+    for section in sections {
+        let group = PreferencesGroup::builder().title(section).build();
+        for shortcut in SHORTCUTS.iter().filter(|s| s.section == section) {
+            let label = ShortcutLabel::new(&accel_for(shortcut));
+            label.set_disabled_text("Disabled");
+            label.set_valign(gtk4::Align::Center);
+            let row = ActionRow::builder()
+                .title(shortcut.title)
+                .activatable(true)
+                .build();
+            row.add_suffix(&label);
+            row.connect_activated({
+                let label = label.clone();
+                let app = app.clone();
+                move |row| capture_shortcut(row, &label, &app, shortcut)
+            });
+            group.add(&row);
+            labels.push((label, shortcut));
+        }
+        page.add(&group);
+    }
+
+    let reset_group = PreferencesGroup::new();
+    let reset = ButtonRow::builder()
+        .title("Reset All Shortcuts")
+        .start_icon_name("edit-undo-symbolic")
+        .build();
+    let app = app.clone();
+    reset.connect_activated(move |_| {
+        for (label, shortcut) in &labels {
+            save_pref(shortcut.pref_key, shortcut.default);
+            label.set_accelerator(shortcut.default);
+        }
+        crate::apply_accels(&app);
+    });
+    reset_group.add(&reset);
+    page.add(&reset_group);
+
+    page
+}
+
+pub fn show_preferences_dialog(parent: &impl IsA<gtk4::Widget>, app: &Application) {
     let prefs = PreferencesDialog::builder()
         .title("Preferences")
+        .search_enabled(true)
         .build();
-    prefs.add(&appearance_page);
-    prefs.add(&editor_page);
-    prefs.add(&sync_page);
-    prefs.add(&ui_page);
-    prefs.add(&shortcuts_page);
-    prefs.present(Some(parent_win));
+    prefs.add(&appearance_page());
+    prefs.add(&editor_page());
+    prefs.add(&preview_page());
+    prefs.add(&shortcuts_page(app));
+    prefs.present(Some(parent));
 }
