@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.v8v88v8v88.MarkView</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-only</project_license>
+  <name>MarkView</name>
+  <summary>Write Markdown with a live preview</summary>
+  <developer id="io.github.v8v88v8v88">
+    <name>Vaibhav Pratap Singh</name>
+  </developer>
+  <description>
+    <p>MarkView is a Markdown editor for GNOME. Write on one side and see the rendered document on the other as you type.</p>
+    <ul>
+      <li>Live preview that follows the system accent colour, fonts and light or dark style</li>
+      <li>Tabs, a tab overview and a list of recent files</li>
+      <li>Editor, split and preview layouts</li>
+      <li>GitHub-style alerts, footnotes, task lists and tables</li>
+      <li>Find and replace, PDF export and customisable shortcuts</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.v8v88v8v88.MarkView.desktop</launchable>
+  <provides>
+    <binary>markview</binary>
+  </provides>
+  <url type="homepage">https://github.com/V8V88V8V88/MarkView</url>
+  <url type="bugtracker">https://github.com/V8V88V8V88/MarkView/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/V8V88V8V88/MarkView/main/screenshot.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <branding>
+    <color type="primary" scheme_preference="light">#99c1f1</color>
+    <color type="primary" scheme_preference="dark">#1a5fb4</color>
+  </branding>
+  <releases>
+    <release version="2.0.1" date="2026-11-19">
+      <description>
+        <p>Adds the desktop entry and app metadata, so MarkView shows up in the app grid and software centres.</p>
+      </description>
+    </release>
+    <release version="2.0.0" date="2026-11-18">
+      <description>
+        <p>A rebuilt interface on the latest GNOME platform, with tabs, recent files, a new layout switcher, a style switcher and many preview improvements.</p>
+      </description>
+    </release>
+  </releases>
+</component>

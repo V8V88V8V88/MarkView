@@ -15,6 +15,8 @@ modules:
       - mkdir -p /app/share/gtksourceview-5/styles
       - install -Dm644 data/styles/*.xml /app/share/gtksourceview-5/styles/
       - install -Dm644 data/icons/hicolor/256x256/apps/io.github.v8v88v8v88.MarkView.png /app/share/icons/hicolor/256x256/apps/io.github.v8v88v8v88.MarkView.png
+      - install -Dm644 data/io.github.v8v88v8v88.MarkView.desktop /app/share/applications/io.github.v8v88v8v88.MarkView.desktop
+      - install -Dm644 data/io.github.v8v88v8v88.MarkView.metainfo.xml /app/share/metainfo/io.github.v8v88v8v88.MarkView.metainfo.xml
     sources:
       - type: dir
         path: ..

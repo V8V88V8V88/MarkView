@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=MarkView
+GenericName=Markdown Editor
+Comment=Write Markdown with a live preview
+Exec=markview %U
+Icon=io.github.v8v88v8v88.MarkView
+Terminal=false
+Type=Application
+Categories=GTK;GNOME;Utility;TextEditor;
+MimeType=text/markdown;text/x-markdown;
+Keywords=markdown;md;editor;preview;writer;
+StartupNotify=true

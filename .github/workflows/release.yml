@@ -90,7 +90,7 @@ jobs:
       - name: Export Flatpak bundle
         run: |
           flatpak build-export repo build
-          flatpak build-bundle repo MarkView-${{ github.ref_name }}.flatpak io.github.v8v88v8v88.MarkView
+          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo repo MarkView-${{ github.ref_name }}.flatpak io.github.v8v88v8v88.MarkView
 
       - name: Upload Flatpak to Release
         uses: softprops/action-gh-release@v3
