@@ -1,15 +1,40 @@
 [package]
 name = "gtk-markdown-viewer"
-version = "2.0.2"
+version = "2.1.0-beta.1"
 edition = "2024"
 
 [dependencies]
-gtk4 = { version = "0.11", features = ["v4_12"] }
-sourceview5 = { version = "0.11", features = ["v5_4"] }
+gtk4 = { version = "0.11", features = ["v4_24"] }
+sourceview5 = { version = "0.11", features = ["v5_22"] }
 pulldown-cmark = "0.13.6"
-webkit6 = "0.6"
 
 [dependencies.adw]
 package = "libadwaita"
 version = "0.9"
-features = ["v1_8"]
+features = ["v1_10"]
+
+# Linux and the BSDs render the preview with WebKitGTK, which is a GTK widget.
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
+webkit6 = "0.6"
+
+# Windows and macOS use the system web engine (WebView2 / WKWebView) through
+# wry, embedded as a native child view of the GTK window. wry is kept off
+# Linux because its Linux backend is built on GTK 3.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+wry = { version = "0.57", default-features = false, features = ["os-webview"] }
+raw-window-handle = "0.6"
+serde_json = "1"
+
+# webview2-com and windows must stay on the versions wry uses, so the COM
+# interfaces wry hands out are the same types this crate names.
+[target.'cfg(windows)'.dependencies]
+gdk4-win32 = "0.11"
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gdk4-macos = { version = "0.11", features = ["v4_8"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSString", "NSURL", "NSValue", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSGraphics", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSView", "NSWindow"] }
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "objc2-app-kit"] }

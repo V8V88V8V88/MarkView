@@ -306,7 +306,7 @@ fn is_modifier(key: gdk::Key) -> bool {
 }
 
 fn accel_for(s: &Shortcut) -> String {
-    load_pref(s.pref_key, s.default)
+    s.accel()
 }
 
 fn same_accel(a: &str, b: &str) -> bool {
@@ -360,7 +360,7 @@ fn capture_shortcut(row: &ActionRow, label: &ShortcutLabel, app: &Application, s
 
     reset.connect_clicked({
         let commit = commit.clone();
-        move |_| commit(shortcut.default)
+        move |_| commit(&shortcut.default_accel())
     });
 
     let keys = EventControllerKey::new();
@@ -443,8 +443,9 @@ fn shortcuts_page(app: &Application) -> PreferencesPage {
     let app = app.clone();
     reset.connect_activated(move |_| {
         for (label, shortcut) in &labels {
-            save_pref(shortcut.pref_key, shortcut.default);
-            label.set_accelerator(shortcut.default);
+            let accel = shortcut.default_accel();
+            save_pref(shortcut.pref_key, &accel);
+            label.set_accelerator(&accel);
         }
         crate::apply_accels(&app);
     });

@@ -11,25 +11,16 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    # The runner's own Ubuntu ships too old a libadwaita, so build inside
-    # Ubuntu 26.04 LTS (GNOME 50: GTK 4.22, libadwaita 1.9), which covers the
-    # GTK 4.12 / libadwaita 1.8 / GtkSourceView 5.4 floor set in Cargo.toml.
-    container: ubuntu:26.04
+    # The GTK 4.24 / libadwaita 1.10 / GtkSourceView 5.22 floor set in
+    # Cargo.toml is newer than any Ubuntu release, so build in Fedora 45
+    # (GNOME 51), which ships exactly those.
+    container: fedora:45
     steps:
       - name: Install system dependencies
         run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates \
-            curl \
-            git \
-            build-essential \
-            pkg-config \
-            libgtk-4-dev \
-            libadwaita-1-dev \
-            libwebkitgtk-6.0-dev \
-            libjavascriptcoregtk-6.0-dev \
-            libgtksourceview-5-dev
+          dnf install -y --setopt=install_weak_deps=False \
+            git gcc pkgconf-pkg-config \
+            gtk4-devel libadwaita-devel gtksourceview5-devel webkitgtk6.0-devel
 
       - uses: actions/checkout@v7
 
@@ -37,7 +28,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Create tarball
         run: |
@@ -53,6 +44,78 @@ jobs:
           files: markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
+          # Tags like v2.1.0-beta.1 become pre-releases, not "Latest".
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    runs-on: windows-latest
+    needs: build-linux
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+
+      # GTK, libadwaita and GtkSourceView come from MSYS2's UCRT64
+      # environment, and so does Rust, so the C and Rust sides share one
+      # toolchain and C runtime.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            zip
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-gtksourceview5
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-ntldd
+
+      - name: Build and bundle
+        run: bash scripts/bundle-windows.sh
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/markview-*-x86_64-pc-windows-gnu.zip
+          append_body: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    # Homebrew only has GTK bottles for Apple Silicon.
+    runs-on: macos-latest
+    needs: build-linux
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: brew install pkgconf gtk4 libadwaita gtksourceview5 adwaita-icon-theme
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Create tarball
+        run: |
+          NAME=markview-${{ github.ref_name }}-aarch64-apple-darwin
+          mkdir -p $NAME
+          cp target/release/gtk-markdown-viewer $NAME/markview
+          cp LICENSE README.md $NAME/
+          cp -r data $NAME/
+          tar czvf $NAME.tar.gz $NAME
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: markview-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+          append_body: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

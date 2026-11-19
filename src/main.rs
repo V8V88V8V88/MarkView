@@ -1,3 +1,7 @@
+// Release builds on Windows are GUI apps; without this a console window
+// opens next to them.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod config;
 mod styles;
 mod ui;
@@ -15,7 +19,7 @@ const APP_ID: &str = "com.v8v88v8v88.MarkView";
 
 pub fn apply_accels(app: &Application) {
     for shortcut in SHORTCUTS {
-        let accel = load_pref(shortcut.pref_key, shortcut.default);
+        let accel = shortcut.accel();
         let accels: Vec<&str> = if accel.is_empty() { vec![] } else { vec![accel.as_str()] };
         app.set_accels_for_action(shortcut.action, &accels);
     }
@@ -68,26 +72,40 @@ fn show_about(app: &Application) {
         .issue_url("https://github.com/v8v88v8v88/MarkView/issues")
         .license_type(gtk4::License::Gpl20)
         .build();
-    dialog.add_acknowledgement_section(
-        Some("Built With"),
-        &[
-            "GTK https://gtk.org",
-            "libadwaita https://gnome.pages.gitlab.gnome.org/libadwaita/",
-            "GtkSourceView https://gitlab.gnome.org/GNOME/gtksourceview",
-            "WebKitGTK https://webkitgtk.org",
-            "pulldown-cmark https://github.com/pulldown-cmark/pulldown-cmark",
-            "gtk-rs https://gtk-rs.org",
-            "Rust https://www.rust-lang.org",
-        ],
-    );
-    for (name, copyright, license) in [
+    let (engine, engine_url) = ui::preview::ENGINE;
+    let mut built_with = vec![
+        "GTK https://gtk.org".to_string(),
+        "libadwaita https://gnome.pages.gitlab.gnome.org/libadwaita/".into(),
+        "GtkSourceView https://gitlab.gnome.org/GNOME/gtksourceview".into(),
+        format!("{engine} {engine_url}"),
+    ];
+    if cfg!(any(windows, target_os = "macos")) {
+        built_with.push("wry https://github.com/tauri-apps/wry".into());
+    }
+    built_with.extend([
+        "pulldown-cmark https://github.com/pulldown-cmark/pulldown-cmark".into(),
+        "gtk-rs https://gtk-rs.org".into(),
+        "Rust https://www.rust-lang.org".into(),
+    ]);
+    let built_with: Vec<&str> = built_with.iter().map(String::as_str).collect();
+    dialog.add_acknowledgement_section(Some("Built With"), &built_with);
+
+    let mut legal = vec![
         ("GTK", "© The GTK Team", gtk4::License::Lgpl21),
         ("libadwaita", "© The GNOME Project", gtk4::License::Lgpl21),
         ("GtkSourceView", "© The GtkSourceView Team", gtk4::License::Lgpl21),
-        ("WebKitGTK", "© The WebKitGTK Team", gtk4::License::Lgpl21),
+    ];
+    if cfg!(any(windows, target_os = "macos")) {
+        // wry is Apache-2.0 OR MIT; MIT is the one compatible with GPL-2.0.
+        legal.push(("wry", "© Ngo Iok Ui & Tauri Programme within The Commons Conservancy", gtk4::License::MitX11));
+    } else {
+        legal.push(("WebKitGTK", "© The WebKitGTK Team", gtk4::License::Lgpl21));
+    }
+    legal.extend([
         ("pulldown-cmark", "© Raph Levien and contributors", gtk4::License::MitX11),
         ("gtk-rs", "© The gtk-rs Project Developers", gtk4::License::MitX11),
-    ] {
+    ]);
+    for (name, copyright, license) in legal {
         dialog.add_legal_section(name, Some(copyright), license, None);
     }
     dialog.present(active_window(app).as_ref());
@@ -121,11 +139,7 @@ fn setup(app: &Application) {
     ui::schemes::init_search_path();
     if let Some(display) = gtk4::gdk::Display::default() {
         let theme = gtk4::IconTheme::for_display(&display);
-        let mut dirs = vec![std::path::PathBuf::from("data/icons")];
-        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("data/icons"))) {
-            dirs.push(dir);
-        }
-        for dir in dirs.into_iter().filter(|d| d.is_dir()) {
+        for dir in utils::data_dirs().into_iter().map(|d| d.join("icons")).filter(|d| d.is_dir()) {
             theme.add_search_path(dir);
         }
     }

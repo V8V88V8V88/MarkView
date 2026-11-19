@@ -6,6 +6,27 @@ use crate::config::*;
 use crate::styles::{theme_variables, PreviewTheme, PREVIEW_CSS};
 use crate::utils::html_escape;
 
+// Each platform renders the preview with its own system web engine:
+// WebKitGTK on Linux, WebView2 on Windows and WKWebView on macOS.
+#[cfg(any(windows, target_os = "macos"))]
+mod native;
+#[cfg(not(any(windows, target_os = "macos")))]
+mod webkit;
+
+#[cfg(any(windows, target_os = "macos"))]
+pub use native::PreviewView;
+#[cfg(not(any(windows, target_os = "macos")))]
+pub use webkit::PreviewView;
+
+/// Name of the web engine behind the preview, for the About dialog.
+pub const ENGINE: (&str, &str) = if cfg!(windows) {
+    ("Microsoft Edge WebView2", "https://developer.microsoft.com/microsoft-edge/webview2/")
+} else if cfg!(target_os = "macos") {
+    ("WebKit", "https://developer.apple.com/documentation/webkit")
+} else {
+    ("WebKitGTK", "https://webkitgtk.org")
+};
+
 #[derive(Clone, Copy, PartialEq)]
 enum Metadata {
     Show,

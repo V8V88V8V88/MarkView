@@ -62,6 +62,23 @@ pub const SHORTCUTS: &[Shortcut] = &[
     Shortcut { pref_key: "key-quit", default: "<Control>q", action: "app.quit", title: "Quit", section: "General" },
 ];
 
+impl Shortcut {
+    /// The default accelerator for this platform. The defaults are written
+    /// with `<Control>`; on macOS GTK reports the Command key as
+    /// `GDK_META_MASK`, so there they use `<Meta>` (Command) instead.
+    pub fn default_accel(&self) -> String {
+        if cfg!(target_os = "macos") {
+            self.default.replace("<Control>", "<Meta>")
+        } else {
+            self.default.to_string()
+        }
+    }
+
+    pub fn accel(&self) -> String {
+        load_pref(self.pref_key, &self.default_accel())
+    }
+}
+
 pub fn pref_bool(key: &str, default: bool) -> bool {
     load_pref(key, if default { "true" } else { "false" }) == "true"
 }
@@ -70,14 +87,10 @@ pub fn save_pref_bool(key: &str, value: bool) {
     save_pref(key, if value { "true" } else { "false" });
 }
 
+/// `$XDG_CONFIG_HOME/MarkView` on Linux (as before), the local application
+/// data folder on Windows.
 pub fn config_path() -> PathBuf {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
-        })
-        .unwrap_or_else(|| PathBuf::from("."));
-    config.join("MarkView").join("preferences.ini")
+    gtk4::glib::user_config_dir().join("MarkView").join("preferences.ini")
 }
 
 thread_local! {

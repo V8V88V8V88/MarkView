@@ -1,18 +1,10 @@
-use std::path::PathBuf;
-
 use sourceview5::{StyleScheme, StyleSchemeManager};
 
 use crate::config::*;
 
 pub fn init_search_path() {
     let mgr = StyleSchemeManager::default();
-    let mut dirs = vec![PathBuf::from("data/styles")];
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        dirs.push(dir.join("data/styles"));
-    }
-    for dir in dirs {
+    for dir in crate::utils::data_dirs().into_iter().map(|d| d.join("styles")) {
         if dir.is_dir()
             && let Some(dir) = dir.to_str()
         {

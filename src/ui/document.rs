@@ -5,11 +5,9 @@ use adw::prelude::*;
 use gtk4::{gdk, gio, glib, EventControllerKey, Orientation, Paned, PropagationPhase, ScrolledWindow};
 use sourceview5::prelude::*;
 use sourceview5::{Buffer as SourceBuffer, LanguageManager, View as SourceView, VimIMContext};
-use webkit6::prelude::*;
-use webkit6::{NavigationPolicyDecision, PolicyDecisionType, WebView};
 
 use crate::config::*;
-use crate::ui::preview::{build_page, current_theme, render_markdown};
+use crate::ui::preview::{build_page, current_theme, render_markdown, PreviewView};
 use crate::ui::schemes;
 use crate::ui::search::SearchController;
 use crate::ui::window::MainWindow;
@@ -89,7 +87,8 @@ pub struct Document {
     pub buffer: SourceBuffer,
     pub view: SourceView,
     pub search: Rc<SearchController>,
-    webview: WebView,
+    preview: PreviewView,
+    preview_widget: gtk4::Widget,
     paned: Paned,
     editor_scroll: ScrolledWindow,
     host: Weak<MainWindow>,
@@ -97,11 +96,9 @@ pub struct Document {
     file: RefCell<Option<gio::File>>,
     first_render: Cell<bool>,
     loading: Cell<bool>,
-    page_uri: RefCell<String>,
     pending_render: RefCell<Option<glib::SourceId>>,
     vim: RefCell<Option<EventControllerKey>>,
     pane_animation: RefCell<Option<adw::TimedAnimation>>,
-    print_op: RefCell<Option<webkit6::PrintOperation>>,
 }
 
 impl Document {
@@ -127,45 +124,55 @@ impl Document {
             .child(&view)
             .build();
 
-        let webview = WebView::new();
-        if let Some(settings) = WebViewExt::settings(&webview) {
-            settings.set_enable_javascript_markup(false);
-            settings.set_enable_developer_extras(false);
-            settings.set_enable_back_forward_navigation_gestures(false);
-        }
+        let doc = Rc::new_cyclic(|weak: &Weak<Self>| {
+            let on_link = weak.clone();
+            let on_loaded = weak.clone();
+            let preview = PreviewView::new(
+                move |uri| {
+                    if let Some(doc) = on_link.upgrade() {
+                        doc.follow_link(&uri);
+                    }
+                },
+                move || {
+                    if let Some(doc) = on_loaded.upgrade() {
+                        doc.sync_scroll();
+                    }
+                },
+            );
+            let preview_widget = preview.widget();
 
-        let paned = Paned::builder()
-            .orientation(if host.is_narrow() { Orientation::Vertical } else { Orientation::Horizontal })
-            .start_child(&editor_scroll)
-            .end_child(&webview)
-            .shrink_start_child(true)
-            .shrink_end_child(true)
-            .vexpand(true)
-            .build();
+            let paned = Paned::builder()
+                .orientation(if host.is_narrow() { Orientation::Vertical } else { Orientation::Horizontal })
+                .start_child(&editor_scroll)
+                .end_child(&preview_widget)
+                .shrink_start_child(true)
+                .shrink_end_child(true)
+                .vexpand(true)
+                .build();
 
-        let search = SearchController::new(&view, &buffer);
-        let root = gtk4::Box::new(Orientation::Vertical, 0);
-        root.append(&search.search_bar);
-        root.append(&paned);
+            let search = SearchController::new(&view, &buffer);
+            let root = gtk4::Box::new(Orientation::Vertical, 0);
+            root.append(&search.search_bar);
+            root.append(&paned);
 
-        let doc = Rc::new(Self {
-            root,
-            buffer,
-            view,
-            search,
-            webview,
-            paned,
-            editor_scroll,
-            host: Rc::downgrade(host),
-            page: RefCell::new(None),
-            file: RefCell::new(None),
-            first_render: Cell::new(true),
-            loading: Cell::new(false),
-            page_uri: RefCell::new(String::new()),
-            pending_render: RefCell::new(None),
-            vim: RefCell::new(None),
-            pane_animation: RefCell::new(None),
-            print_op: RefCell::new(None),
+            Self {
+                root,
+                buffer,
+                view,
+                search,
+                preview,
+                preview_widget,
+                paned,
+                editor_scroll,
+                host: Rc::downgrade(host),
+                page: RefCell::new(None),
+                file: RefCell::new(None),
+                first_render: Cell::new(true),
+                loading: Cell::new(false),
+                pending_render: RefCell::new(None),
+                vim: RefCell::new(None),
+                pane_animation: RefCell::new(None),
+            }
         });
         doc.setup_signals();
         doc.apply_settings();
@@ -223,48 +230,6 @@ impl Document {
             if let Some(doc) = weak.upgrade() {
                 doc.sync_scroll();
             }
-        });
-
-        let weak = self.weak();
-        self.webview.connect_load_changed(move |_, event| {
-            if event == webkit6::LoadEvent::Finished
-                && let Some(doc) = weak.upgrade()
-            {
-                doc.sync_scroll();
-            }
-        });
-
-        let weak = self.weak();
-        self.webview.connect_decide_policy(move |_, decision, kind| {
-            let Some(doc) = weak.upgrade() else { return false };
-            if kind != PolicyDecisionType::NavigationAction {
-                return false;
-            }
-            let Some(uri) = decision
-                .downcast_ref::<NavigationPolicyDecision>()
-                .and_then(|d| d.navigation_action())
-                .and_then(|a| a.request())
-                .and_then(|r| r.uri())
-            else {
-                return false;
-            };
-            let page = doc.page_uri.borrow().clone();
-            if uri == "about:blank" || uri.split('#').next() == Some(page.as_str()) {
-                return false;
-            }
-            decision.ignore();
-            if uri.starts_with("file:") && is_markdown_uri(&uri) {
-                if let Some(host) = doc.host() {
-                    host.open_file(gio::File::for_uri(&uri));
-                }
-            } else {
-                gtk4::UriLauncher::new(&uri).launch(
-                    doc.parent_window().as_ref(),
-                    None::<&gio::Cancellable>,
-                    |_| {},
-                );
-            }
-            true
         });
 
         let drop = gtk4::DropTarget::new(gio::File::static_type(), gdk::DragAction::COPY);
@@ -335,7 +300,17 @@ impl Document {
         let dark = adw::StyleManager::default().is_dark();
         self.buffer
             .set_style_scheme(schemes::resolve(&schemes::saved_family(), dark).as_ref());
-        self.webview.set_background_color(&current_theme().background());
+        self.preview.set_background(&current_theme().background());
+    }
+
+    fn follow_link(&self, uri: &str) {
+        if uri.starts_with("file:") && is_markdown_uri(uri) {
+            if let Some(host) = self.host() {
+                host.open_file(gio::File::for_uri(uri));
+            }
+        } else {
+            gtk4::UriLauncher::new(uri).launch(self.parent_window().as_ref(), None::<&gio::Cancellable>, |_| {});
+        }
     }
 
     pub fn file(&self) -> Option<gio::File> {
@@ -398,24 +373,14 @@ impl Document {
         let in_place = pref_bool(PREF_DOM_INJECTION, DEFAULT_DOM_INJECTION == "true");
 
         if in_place && !full_reload && !self.first_render.get() {
-            let args = glib::VariantDict::new(None);
-            args.insert("html", body.as_str());
-            self.webview.call_async_javascript_function(
-                "document.body.innerHTML = html;",
-                Some(&args.end()),
-                None,
-                None,
-                None::<&gio::Cancellable>,
-                |_| {},
-            );
+            self.preview.set_body(&body);
             return;
         }
 
         let theme = current_theme();
         let base = base_uri_for_preview(self.file.borrow().as_ref());
-        *self.page_uri.borrow_mut() = base.clone();
-        self.webview.set_background_color(&theme.background());
-        self.webview.load_html(&build_page(&body, &theme), Some(&base));
+        self.preview.set_background(&theme.background());
+        self.preview.load_page(&build_page(&body, &theme), &base);
         self.first_render.set(false);
     }
 
@@ -428,16 +393,7 @@ impl Document {
         if range <= 0.0 {
             return;
         }
-        let args = glib::VariantDict::new(None);
-        args.insert("fraction", adj.value() / range);
-        self.webview.call_async_javascript_function(
-            "window.scrollTo(0, (document.documentElement.scrollHeight - window.innerHeight) * fraction);",
-            Some(&args.end()),
-            None,
-            None,
-            None::<&gio::Cancellable>,
-            |_| {},
-        );
+        self.preview.scroll_to(adj.value() / range);
     }
 
     pub fn set_orientation(&self, orientation: Orientation) {
@@ -466,7 +422,7 @@ impl Document {
             ViewMode::Preview => 0,
         };
         let editor = self.editor_scroll.clone();
-        let preview = self.webview.clone();
+        let preview = self.preview_widget.clone();
         let finish = move || {
             editor.set_visible(mode != ViewMode::Preview);
             preview.set_visible(mode != ViewMode::Editor);
@@ -480,13 +436,13 @@ impl Document {
 
         let from = if !self.editor_scroll.is_visible() {
             0
-        } else if !self.webview.is_visible() {
+        } else if !self.preview_widget.is_visible() {
             extent
         } else {
             self.paned.position()
         };
         self.editor_scroll.set_visible(true);
-        self.webview.set_visible(true);
+        self.preview_widget.set_visible(true);
         self.paned.set_position(from);
 
         let anim = adw::TimedAnimation::builder()
@@ -622,32 +578,22 @@ impl Document {
             return;
         };
 
-        let settings = gtk4::PrintSettings::new();
-        settings.set(gtk4::PRINT_SETTINGS_OUTPUT_URI, Some(file.uri().as_str()));
-        settings.set(gtk4::PRINT_SETTINGS_OUTPUT_FILE_FORMAT, Some("pdf"));
-        settings.set_printer("Print to File");
-        let page_setup = gtk4::PageSetup::new();
-        page_setup.set_top_margin(15.0, gtk4::Unit::Mm);
-        page_setup.set_bottom_margin(15.0, gtk4::Unit::Mm);
-        page_setup.set_left_margin(18.0, gtk4::Unit::Mm);
-        page_setup.set_right_margin(18.0, gtk4::Unit::Mm);
-
-        let op = webkit6::PrintOperation::new(&self.webview);
-        op.set_print_settings(&settings);
-        op.set_page_setup(&page_setup);
         let weak = self.weak();
-        op.connect_finished(move |_| {
+        let target = file.clone();
+        self.preview.export_pdf(&file, move |result| {
             let Some(doc) = weak.upgrade() else { return };
-            doc.print_op.borrow_mut().take();
             let Some(host) = doc.host() else { return };
+            if let Err(message) = result {
+                doc.toast(&format!("Export failed: {message}"));
+                return;
+            }
             let toast = adw::Toast::builder()
-                .title(format!("Exported “{}”", display_name(&file)))
+                .title(format!("Exported “{}”", display_name(&target)))
                 .button_label("Open")
                 .build();
-            let file = file.clone();
             let window = host.window.clone();
             toast.connect_button_clicked(move |_| {
-                gtk4::FileLauncher::new(Some(&file)).launch(
+                gtk4::FileLauncher::new(Some(&target)).launch(
                     Some(&window),
                     None::<&gio::Cancellable>,
                     |_| {},
@@ -655,14 +601,5 @@ impl Document {
             });
             host.toast(toast);
         });
-        let weak = self.weak();
-        op.connect_failed(move |_, e| {
-            if let Some(doc) = weak.upgrade() {
-                doc.print_op.borrow_mut().take();
-                doc.toast(&format!("Export failed: {}", e.message()));
-            }
-        });
-        op.print();
-        *self.print_op.borrow_mut() = Some(op);
     }
 }
