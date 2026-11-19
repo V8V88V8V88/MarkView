@@ -1,4 +1,4 @@
-app-id: io.github.v8v88v8v88.MarkView
+app-id: com.v8v88v8v88.MarkView
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
@@ -14,9 +14,9 @@ modules:
       - install -Dm755 target/release/gtk-markdown-viewer /app/bin/markview
       - mkdir -p /app/share/gtksourceview-5/styles
       - install -Dm644 data/styles/*.xml /app/share/gtksourceview-5/styles/
-      - install -Dm644 data/icons/hicolor/256x256/apps/io.github.v8v88v8v88.MarkView.png /app/share/icons/hicolor/256x256/apps/io.github.v8v88v8v88.MarkView.png
-      - install -Dm644 data/io.github.v8v88v8v88.MarkView.desktop /app/share/applications/io.github.v8v88v8v88.MarkView.desktop
-      - install -Dm644 data/io.github.v8v88v8v88.MarkView.metainfo.xml /app/share/metainfo/io.github.v8v88v8v88.MarkView.metainfo.xml
+      - install -Dm644 data/icons/hicolor/256x256/apps/com.v8v88v8v88.MarkView.png /app/share/icons/hicolor/256x256/apps/com.v8v88v8v88.MarkView.png
+      - install -Dm644 data/com.v8v88v8v88.MarkView.desktop /app/share/applications/com.v8v88v8v88.MarkView.desktop
+      - install -Dm644 data/com.v8v88v8v88.MarkView.metainfo.xml /app/share/metainfo/com.v8v88v8v88.MarkView.metainfo.xml
     sources:
       - type: dir
         path: ..
@@ -29,5 +29,4 @@ finish-args:
   - --socket=fallback-x11
   - --socket=wayland
   - --share=network
-  - --filesystem=xdg-documents
-  - --filesystem=xdg-download
+  - --filesystem=home

@@ -11,7 +11,7 @@ use crate::config::*;
 use crate::ui::prefs::{color_scheme_from_pref, show_preferences_dialog};
 use crate::ui::window::{refresh_appearance_of_all_windows, window_for, windows, MainWindow, APP_NAME};
 
-const APP_ID: &str = "io.github.v8v88v8v88.MarkView";
+const APP_ID: &str = "com.v8v88v8v88.MarkView";
 
 pub fn apply_accels(app: &Application) {
     for shortcut in SHORTCUTS {

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.v8v88v8v88.MarkView</id>
+  <id>com.v8v88v8v88.MarkView</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-2.0-only</project_license>
   <name>MarkView</name>
   <summary>Write Markdown with a live preview</summary>
-  <developer id="io.github.v8v88v8v88">
+  <developer id="com.v8v88v8v88">
     <name>Vaibhav Pratap Singh</name>
   </developer>
   <description>
@@ -18,7 +18,10 @@
       <li>Find and replace, PDF export and customisable shortcuts</li>
     </ul>
   </description>
-  <launchable type="desktop-id">io.github.v8v88v8v88.MarkView.desktop</launchable>
+  <replaces>
+    <id>io.github.v8v88v8v88.MarkView</id>
+  </replaces>
+  <launchable type="desktop-id">com.v8v88v8v88.MarkView.desktop</launchable>
   <provides>
     <binary>markview</binary>
   </provides>
@@ -35,6 +38,11 @@
     <color type="primary" scheme_preference="dark">#1a5fb4</color>
   </branding>
   <releases>
+    <release version="2.0.2" date="2026-11-19">
+      <description>
+        <p>Images next to a document now show up in the preview, and the app ID is now com.v8v88v8v88.MarkView.</p>
+      </description>
+    </release>
     <release version="2.0.1" date="2026-11-19">
       <description>
         <p>Adds the desktop entry and app metadata, so MarkView shows up in the app grid and software centres.</p>

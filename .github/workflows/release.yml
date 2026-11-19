@@ -85,12 +85,12 @@ jobs:
 
       - name: Build Flatpak
         run: |
-          flatpak-builder --force-clean build flatpak/io.github.v8v88v8v88.MarkView.yml
+          flatpak-builder --force-clean build flatpak/com.v8v88v8v88.MarkView.yml
 
       - name: Export Flatpak bundle
         run: |
           flatpak build-export repo build
-          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo repo MarkView-${{ github.ref_name }}.flatpak io.github.v8v88v8v88.MarkView
+          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo repo MarkView-${{ github.ref_name }}.flatpak com.v8v88v8v88.MarkView
 
       - name: Upload Flatpak to Release
         uses: softprops/action-gh-release@v3
