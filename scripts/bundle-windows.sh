@@ -23,8 +23,19 @@ mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/share/glib-2.0" "$OUT/share/icons" "$OUT/sh
 cp target/release/gtk-markdown-viewer.exe "$OUT/bin/markview.exe"
 
 # On the GNU target webview2-com links WebView2Loader.dll dynamically; its
-# build script copies the DLL into its OUT_DIR.
-loader=$(find target/release/build -path '*webview2-com-sys-*/out/x64/WebView2Loader.dll' | head -1)
+# build script copies the DLL into "$OUT_DIR/x64". Where OUT_DIR sits depends
+# on the Cargo version's build-dir layout, so search the whole target folder.
+# The build script copies it from the crate's own source folder, so fall back
+# to that.
+loader=$(find target -path '*webview2-com-sys*' -path '*/out/x64/WebView2Loader.dll' | head -1)
+if [ -z "$loader" ]; then
+    ver=$(grep -A1 '^name = "webview2-com-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+    loader=$(find "${CARGO_HOME:-$HOME/.cargo}/registry/src" -path "*/webview2-com-sys-${ver}/x64/WebView2Loader.dll" 2>/dev/null | head -1)
+fi
+if [ -z "$loader" ]; then
+    echo "WebView2Loader.dll not found under target/" >&2
+    exit 1
+fi
 cp "$loader" "$OUT/bin/"
 
 cp -r "$PREFIX/lib/gdk-pixbuf-2.0" "$OUT/lib/"
