@@ -29,11 +29,7 @@ Download the build for your platform from the [latest release](https://github.co
 
 - **Linux**: install the `.flatpak` bundle, or extract the x86_64 tarball and run `./markview`. The tarball needs GTK 4.24+, libadwaita 1.10+, GtkSourceView 5.22+ and WebKitGTK 6.0 installed.
 - **Windows** (x86_64): extract the zip and run `bin\markview.exe`. GTK and its libraries are included. The preview needs the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/), which ships with Windows 10 and 11.
-- **macOS** (Apple Silicon): install the libraries with [Homebrew](https://brew.sh), then extract the tarball and run `./markview`:
-
-  ```bash
-  brew install gtk4 libadwaita gtksourceview5 adwaita-icon-theme
-  ```
+- **macOS** (Apple Silicon): open the `.dmg` and drag MarkView to Applications. GTK and its libraries are included. MarkView isn't signed with an Apple Developer ID, so the first time you open it macOS says it can't verify the app. Click **Done**, open **System Settings > Privacy & Security**, scroll down and click **Open Anyway**. After that it opens normally.
 
 ## Build from source
 
@@ -59,6 +55,8 @@ pacman -S mingw-w64-ucrt-x86_64-{gtk4,libadwaita,gtksourceview5,pkgconf,gcc,rust
 ```
 
 On Windows, `scripts/bundle-windows.sh` builds a self-contained folder and zip from the MSYS2 shell (it also needs `mingw-w64-ucrt-x86_64-ntldd` and `zip`).
+
+On macOS, `scripts/bundle-macos.sh` builds `MarkView.app` and a `.dmg` (it also needs `brew install dylibbundler`).
 
 ## Keyboard shortcuts
 

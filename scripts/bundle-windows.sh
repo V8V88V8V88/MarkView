@@ -11,7 +11,7 @@
 set -euo pipefail
 
 VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-NAME="markview-${VERSION}-x86_64-pc-windows-gnu"
+NAME="markview-v${VERSION}-x86_64-pc-windows-gnu"
 PREFIX="${MINGW_PREFIX:?run this from an MSYS2 UCRT64 shell}"
 OUT="dist/$NAME"
 

@@ -161,7 +161,31 @@ fn setup(app: &Application) {
     apply_accels(app);
 }
 
+/// GLib and GTK on macOS look for their data (icon themes, GSettings schemas,
+/// GtkSourceView languages) in the directories they were built with, or in
+/// `XDG_DATA_DIRS`. Inside MarkView.app those files live in
+/// `Contents/Resources/share`, so point `XDG_DATA_DIRS` there.
+#[cfg(target_os = "macos")]
+fn use_bundled_data() {
+    let Some(share) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent()?.parent().map(|contents| contents.join("Resources/share")))
+        .filter(|share| share.is_dir())
+    else {
+        return;
+    };
+    let mut dirs = share.into_os_string();
+    if let Some(existing) = std::env::var_os("XDG_DATA_DIRS").filter(|v| !v.is_empty()) {
+        dirs.push(":");
+        dirs.push(existing);
+    }
+    // SAFETY: runs first thing in main, before GTK or any other thread starts.
+    unsafe { std::env::set_var("XDG_DATA_DIRS", dirs) };
+}
+
 fn main() -> glib::ExitCode {
+    #[cfg(target_os = "macos")]
+    use_bundled_data();
     glib::set_application_name(APP_NAME);
     let app = Application::builder()
         .application_id(APP_ID)
