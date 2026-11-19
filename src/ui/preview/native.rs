@@ -238,10 +238,19 @@ impl Inner {
             let url = self.page_url.borrow();
             if url.is_empty() { "about:blank".to_string() } else { url.clone() }
         };
-        let bounds = self.bounds_rect().unwrap_or(Rect {
+        let origin = Rect {
             position: dpi::LogicalPosition::new(0, 0).into(),
             size: dpi::LogicalSize::new(1, 1).into(),
-        });
+        };
+        // On Windows the view is a child of the GTK window, placed at the
+        // preview pane. On macOS it fills the overlay window, which is what
+        // gets moved to the pane: wry offsets a non-child WKWebView by the
+        // bounds' position and only resizes it with the window, so it must
+        // start at the origin.
+        #[cfg(windows)]
+        let bounds = self.bounds_rect().unwrap_or(origin);
+        #[cfg(target_os = "macos")]
+        let bounds = origin;
 
         #[cfg(windows)]
         let mut context = wry::WebContext::new(Some(glib::user_data_dir().join("MarkView").join("WebView2")));
@@ -434,6 +443,7 @@ impl Inner {
         Some((x0 as i32, y0 as i32, (x1 - x0) as u32, (y1 - y0) as u32))
     }
 
+    #[cfg(windows)]
     fn bounds_rect(&self) -> Option<Rect> {
         let (x, y, w, h) = self.surface_bounds()?;
         Some(to_rect(x, y, w, h))
@@ -483,6 +493,7 @@ impl Inner {
     }
 }
 
+#[cfg(windows)]
 fn to_rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
     #[cfg(windows)]
     return Rect {
