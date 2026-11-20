@@ -2,10 +2,6 @@ use gtk4::gio;
 use gtk4::gio::prelude::*;
 use std::path::PathBuf;
 
-/// Directories that may hold MarkView's own data (`styles/`, `icons/`):
-/// the source tree, a folder next to the executable, `Contents/Resources/data`
-/// in a macOS app bundle, and `share/markview` beside the executable's
-/// `bin/` (the Windows bundle layout).
 pub fn data_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from("data")];
     if let Some(exe_dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {

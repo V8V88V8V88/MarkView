@@ -1,6 +1,6 @@
 [package]
 name = "gtk-markdown-viewer"
-version = "2.1.0-beta.4"
+version = "2.1.0-beta.5"
 edition = "2024"
 
 [dependencies]
@@ -13,20 +13,16 @@ package = "libadwaita"
 version = "0.9"
 features = ["v1_10"]
 
-# Linux and the BSDs render the preview with WebKitGTK, which is a GTK widget.
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 webkit6 = "0.6"
 
-# Windows and macOS use the system web engine (WebView2 / WKWebView) through
-# wry, embedded as a native child view of the GTK window. wry is kept off
-# Linux because its Linux backend is built on GTK 3.
+# wry's Linux backend is GTK 3, so it's only used on Windows and macOS.
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 wry = { version = "0.57", default-features = false, features = ["os-webview"] }
 raw-window-handle = "0.6"
 serde_json = "1"
 
-# webview2-com and windows must stay on the versions wry uses, so the COM
-# interfaces wry hands out are the same types this crate names.
+# Must match wry's versions.
 [target.'cfg(windows)'.dependencies]
 gdk4-win32 = "0.11"
 webview2-com = "0.39"

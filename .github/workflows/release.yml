@@ -11,9 +11,7 @@ permissions:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    # The GTK 4.24 / libadwaita 1.10 / GtkSourceView 5.22 floor set in
-    # Cargo.toml is newer than any Ubuntu release, so build in Fedora 45
-    # (GNOME 51), which ships exactly those.
+    # Ubuntu doesn't have GTK 4.24 / libadwaita 1.10 yet.
     container: fedora:45
     steps:
       - name: Install system dependencies
@@ -44,7 +42,6 @@ jobs:
           files: markview-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
-          # Tags like v2.1.0-beta.1 become pre-releases, not "Latest".
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,9 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # GTK, libadwaita and GtkSourceView come from MSYS2's UCRT64
-      # environment, and so does Rust, so the C and Rust sides share one
-      # toolchain and C runtime.
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64

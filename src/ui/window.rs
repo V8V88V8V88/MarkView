@@ -124,8 +124,7 @@ pub struct MainWindow {
     toasts: ToastOverlay,
     tab_view: TabView,
     title: WindowTitle,
-    view_button: SplitButton,
-    layout_checks: Vec<(ViewMode, gtk4::Image)>,
+    view_button: gtk4::Button,
     recent_list: gtk4::ListBox,
     recent_search: gtk4::SearchEntry,
     recent_popover: gtk4::Popover,
@@ -140,12 +139,6 @@ impl MainWindow {
     pub fn new(app: &Application) -> Rc<Self> {
         let title = WindowTitle::new(APP_NAME, "");
         let header = HeaderBar::builder().title_widget(&title).build();
-
-        let new_tab_button = gtk4::Button::builder()
-            .icon_name("tab-new-symbolic")
-            .tooltip_text("New Tab")
-            .action_name("win.new-tab")
-            .build();
 
         let recent_search = gtk4::SearchEntry::builder()
             .placeholder_text("Search recent files")
@@ -187,30 +180,17 @@ impl MainWindow {
             move |_| popover.popdown()
         });
         let open_button = SplitButton::builder()
-            .icon_name("document-open-symbolic")
-            .tooltip_text("Open")
-            .dropdown_tooltip("Recent Files")
-            .action_name("win.open")
+            .icon_name("tab-new-symbolic")
+            .tooltip_text("New Tab")
+            .dropdown_tooltip("Open File")
+            .action_name("win.new-tab")
             .popover(&recent_popover)
             .build();
 
         header.pack_start(&open_button);
-        header.pack_start(&new_tab_button);
 
-        let (layout_popover, layout_list) = menu_popover();
-        let mut layout_checks = Vec::new();
-        for mode in [ViewMode::Split, ViewMode::Editor, ViewMode::Preview] {
-            let (row, suffix) = menu_row(mode.icon(), mode.label());
-            row.remove(&suffix);
-            let check = gtk4::Image::from_icon_name("object-select-symbolic");
-            row.append(&check);
-            layout_list.append(&menu_item(&layout_popover, &row, "win.view-mode", Some(&mode.name().to_variant())));
-            layout_checks.push((mode, check));
-        }
-        let view_button = SplitButton::builder()
-            .popover(&layout_popover)
+        let view_button = gtk4::Button::builder()
             .tooltip_text("Switch Layout")
-            .dropdown_tooltip("Choose Layout")
             .action_name("win.cycle-view")
             .build();
 
@@ -281,6 +261,11 @@ impl MainWindow {
             .action_name("overview.open")
             .tooltip_text("View Open Tabs")
             .build();
+        tab_view
+            .bind_property("n-pages", &tab_button, "visible")
+            .transform_to(|_, n: i32| Some(n > 1))
+            .sync_create()
+            .build();
 
         header.pack_end(&menu_button);
         header.pack_end(&view_button);
@@ -327,7 +312,6 @@ impl MainWindow {
             tab_view,
             title,
             view_button,
-            layout_checks,
             recent_list,
             recent_search,
             recent_popover,
@@ -457,9 +441,7 @@ impl MainWindow {
     fn sync_view_controls(&self) {
         let mode = self.mode.get();
         self.view_button.set_icon_name(mode.icon());
-        for (m, check) in &self.layout_checks {
-            check.set_opacity(if *m == mode { 1.0 } else { 0.0 });
-        }
+        self.view_button.set_tooltip_text(Some(&format!("Switch Layout ({})", mode.label())));
         if let Some(action) = self.window.lookup_action("view-mode") {
             action.change_state(&mode.name().to_variant());
         }
@@ -532,6 +514,16 @@ impl MainWindow {
             doc.save_as().await;
         });
         self.doc_action("export-pdf", |doc| async move { doc.export_pdf().await });
+        let format = gio::SimpleAction::new("format", Some(glib::VariantTy::STRING));
+        let weak = self.weak();
+        format.connect_activate(move |_, target| {
+            if let (Some(win), Some(name)) = (weak.upgrade(), target.and_then(|t| t.str()))
+                && let Some(doc) = win.current()
+            {
+                doc.format(name);
+            }
+        });
+        self.window.add_action(&format);
         self.action("search", |win| {
             if let Some(doc) = win.current() {
                 doc.search.toggle();

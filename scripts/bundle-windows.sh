@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# Build MarkView and bundle it with its GTK runtime into a self-contained
-# folder and zip. Run from the repository root in an MSYS2 UCRT64 shell with:
-#
+# Run in an MSYS2 UCRT64 shell with:
 #   pacman -S mingw-w64-ucrt-x86_64-{gtk4,libadwaita,gtksourceview5,pkgconf,gcc,rust,ntldd} zip
-#
-# Layout (GLib looks for data in the "share" folder next to an exe's "bin"):
-#   markview/bin/markview.exe + DLLs, WebView2Loader.dll
-#   markview/lib/gdk-pixbuf-2.0/   image loaders
-#   markview/share/                icons, schemas, GtkSourceView data, MarkView styles
 set -euo pipefail
 
 VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
@@ -22,11 +15,7 @@ mkdir -p "$OUT/bin" "$OUT/lib" "$OUT/share/glib-2.0" "$OUT/share/icons" "$OUT/sh
 
 cp target/release/gtk-markdown-viewer.exe "$OUT/bin/markview.exe"
 
-# On the GNU target webview2-com links WebView2Loader.dll dynamically; its
-# build script copies the DLL into "$OUT_DIR/x64". Where OUT_DIR sits depends
-# on the Cargo version's build-dir layout, so search the whole target folder.
-# The build script copies it from the crate's own source folder, so fall back
-# to that.
+# Location of OUT_DIR depends on Cargo's build-dir layout.
 loader=$(find target -path '*webview2-com-sys*' -path '*/out/x64/WebView2Loader.dll' | head -1)
 if [ -z "$loader" ]; then
     ver=$(grep -A1 '^name = "webview2-com-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
@@ -40,7 +29,6 @@ cp "$loader" "$OUT/bin/"
 
 cp -r "$PREFIX/lib/gdk-pixbuf-2.0" "$OUT/lib/"
 
-# Every DLL the program and the pixbuf loaders need from the MSYS2 prefix.
 copy_deps() {
     ntldd -R "$@" | tr -d '\r' | awk '{print $3}' | grep -i '^[a-z]:.*\\ucrt64\\bin\\' | sort -u |
         while read -r dll; do cp -n "$(cygpath -u "$dll")" "$OUT/bin/"; done

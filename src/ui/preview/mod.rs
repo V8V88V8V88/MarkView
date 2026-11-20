@@ -6,8 +6,6 @@ use crate::config::*;
 use crate::styles::{theme_variables, PreviewTheme, PREVIEW_CSS};
 use crate::utils::html_escape;
 
-// Each platform renders the preview with its own system web engine:
-// WebKitGTK on Linux, WebView2 on Windows and WKWebView on macOS.
 #[cfg(any(windows, target_os = "macos"))]
 mod native;
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -18,7 +16,6 @@ pub use native::PreviewView;
 #[cfg(not(any(windows, target_os = "macos")))]
 pub use webkit::PreviewView;
 
-/// Name of the web engine behind the preview, for the About dialog.
 pub const ENGINE: (&str, &str) = if cfg!(windows) {
     ("Microsoft Edge WebView2", "https://developer.microsoft.com/microsoft-edge/webview2/")
 } else if cfg!(target_os = "macos") {
@@ -93,17 +90,17 @@ fn font_from_pango(name: &str) -> (String, f64) {
 
 pub fn current_theme() -> PreviewTheme {
     let sm = StyleManager::default();
-    let accent = sm.accent_color_rgba();
+    let css = |c: gtk4::gdk::RGBA| {
+        format!("rgb({} {} {})", (c.red() * 255.0).round(), (c.green() * 255.0).round(), (c.blue() * 255.0).round())
+    };
+    let accent = sm.accent_color();
     let (font_family, font_size_px) = font_from_pango(&sm.document_font_name());
     let (mono_family, _) = font_from_pango(&sm.monospace_font_name());
     PreviewTheme {
         dark: sm.is_dark(),
-        accent: format!(
-            "rgb({} {} {})",
-            (accent.red() * 255.0).round(),
-            (accent.green() * 255.0).round(),
-            (accent.blue() * 255.0).round()
-        ),
+        accent: css(accent.to_standalone_rgba(sm.is_dark())),
+        accent_bg: css(sm.accent_color_rgba()),
+        print_accent: css(accent.to_standalone_rgba(false)),
         font_family,
         font_size_px: font_size_px * 1.05,
         mono_family,

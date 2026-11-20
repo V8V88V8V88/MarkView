@@ -244,6 +244,7 @@ fn editor_page() -> PreferencesPage {
         .build();
 
     let display = PreferencesGroup::builder().title("Display").build();
+    display.add(&switch_row("Formatting Toolbar", "Show buttons for bold, lists, links and more above the editor", PREF_FORMAT_BAR, DEFAULT_FORMAT_BAR == "true"));
     display.add(&switch_row("Line Numbers", "Show line numbers in the gutter", PREF_LINE_NUMBERS, DEFAULT_LINE_NUMBERS == "true"));
     display.add(&switch_row("Highlight Current Line", "Shade the line the cursor is on", PREF_HIGHLIGHT_LINE, DEFAULT_HIGHLIGHT_LINE == "true"));
     display.add(&switch_row("Text Wrapping", "Wrap long lines at word boundaries", PREF_WORD_WRAP, DEFAULT_WORD_WRAP == "true"));

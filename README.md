@@ -15,6 +15,7 @@ Write Markdown on the left and see it rendered on the right as you type. Built w
 - Preview follows the system accent color, document font and light/dark style
 - Editor, split and preview layouts with animated switching, stacking vertically on narrow windows
 - GtkSourceView editor with Markdown highlighting, 27 color schemes that switch light/dark with the system, line numbers, wrapping and optional Vim keybindings
+- Formatting toolbar and shortcuts for bold, italic, strikethrough, headings, lists, task lists, quotes, code, links, images, tables and horizontal lines
 - Find and replace with match count, case and regex options
 - GitHub-style alerts (`> [!NOTE]`, `> [!WARNING]`, …), footnotes, task lists, tables, definition lists and sub/superscript
 - YAML front matter can be shown, hidden or rendered as text

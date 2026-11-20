@@ -13,6 +13,8 @@ pub const PREF_READABLE_LINE: &str = "readable-line-length";
 pub const PREF_MAX_WIDTH: &str = "max-content-width";
 pub const PREF_VIM_MODE: &str = "vim-mode";
 pub const PREF_LINE_NUMBERS: &str = "line-numbers";
+pub const PREF_FORMAT_BAR: &str = "formatting-toolbar";
+pub const DEFAULT_FORMAT_BAR: &str = "true";
 pub const PREF_WORD_WRAP: &str = "word-wrap";
 pub const PREF_HIGHLIGHT_LINE: &str = "highlight-current-line";
 pub const PREF_AUTOHIDE_HEADER: &str = "autohide-header";
@@ -27,7 +29,7 @@ pub const DEFAULT_VIEW: &str = "dual-pane";
 pub const DEFAULT_READABLE_LINE: &str = "true";
 pub const DEFAULT_MAX_WIDTH: &str = "1000";
 pub const DEFAULT_VIM_MODE: &str = "false";
-pub const DEFAULT_LINE_NUMBERS: &str = "true";
+pub const DEFAULT_LINE_NUMBERS: &str = "false";
 pub const DEFAULT_WORD_WRAP: &str = "true";
 pub const DEFAULT_HIGHLIGHT_LINE: &str = "false";
 pub const DEFAULT_AUTOHIDE_HEADER: &str = "true";
@@ -51,6 +53,14 @@ pub const SHORTCUTS: &[Shortcut] = &[
     Shortcut { pref_key: "key-save", default: "<Control>s", action: "win.save", title: "Save", section: "Document" },
     Shortcut { pref_key: "key-save-as", default: "<Control><Shift>s", action: "win.save-as", title: "Save As", section: "Document" },
     Shortcut { pref_key: "key-export-pdf", default: "<Control>p", action: "win.export-pdf", title: "Export as PDF", section: "Document" },
+    Shortcut { pref_key: "key-bold", default: "<Control>b", action: "win.format::bold", title: "Bold", section: "Formatting" },
+    Shortcut { pref_key: "key-italic", default: "<Control>i", action: "win.format::italic", title: "Italic", section: "Formatting" },
+    Shortcut { pref_key: "key-strikethrough", default: "<Control><Shift>x", action: "win.format::strikethrough", title: "Strikethrough", section: "Formatting" },
+    Shortcut { pref_key: "key-inline-code", default: "<Control><Shift>c", action: "win.format::code", title: "Code", section: "Formatting" },
+    Shortcut { pref_key: "key-link", default: "<Control>k", action: "win.format::link", title: "Link", section: "Formatting" },
+    Shortcut { pref_key: "key-heading-1", default: "<Control>1", action: "win.format::heading-1", title: "Heading 1", section: "Formatting" },
+    Shortcut { pref_key: "key-heading-2", default: "<Control>2", action: "win.format::heading-2", title: "Heading 2", section: "Formatting" },
+    Shortcut { pref_key: "key-heading-3", default: "<Control>3", action: "win.format::heading-3", title: "Heading 3", section: "Formatting" },
     Shortcut { pref_key: "key-search", default: "<Control>f", action: "win.search", title: "Find and Replace", section: "Editing" },
     Shortcut { pref_key: "key-toggle-editor", default: "<Control>e", action: "win.toggle-editor", title: "Show or Hide Editor", section: "View" },
     Shortcut { pref_key: "key-cycle-view", default: "<Control>l", action: "win.cycle-view", title: "Switch Layout", section: "View" },
@@ -63,9 +73,7 @@ pub const SHORTCUTS: &[Shortcut] = &[
 ];
 
 impl Shortcut {
-    /// The default accelerator for this platform. The defaults are written
-    /// with `<Control>`; on macOS GTK reports the Command key as
-    /// `GDK_META_MASK`, so there they use `<Meta>` (Command) instead.
+    /// macOS uses Command (`<Meta>`) where the defaults say `<Control>`.
     pub fn default_accel(&self) -> String {
         if cfg!(target_os = "macos") {
             self.default.replace("<Control>", "<Meta>")
@@ -87,8 +95,6 @@ pub fn save_pref_bool(key: &str, value: bool) {
     save_pref(key, if value { "true" } else { "false" });
 }
 
-/// `$XDG_CONFIG_HOME/MarkView` on Linux (as before), the local application
-/// data folder on Windows.
 pub fn config_path() -> PathBuf {
     gtk4::glib::user_config_dir().join("MarkView").join("preferences.ini")
 }

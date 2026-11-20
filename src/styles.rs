@@ -1,52 +1,37 @@
+// Colors from libadwaita 1.10's stylesheet (_colors.scss, _palette.scss).
 struct Palette {
     bg: &'static str,
     fg: &'static str,
-    heading: &'static str,
-    muted: &'static str,
-    rule: &'static str,
-    surface: &'static str,
-    code_bg: &'static str,
-    note: &'static str,
-    tip: &'static str,
-    important: &'static str,
-    warning: &'static str,
-    caution: &'static str,
+    success_bg: &'static str,
+    warning_bg: &'static str,
+    error_bg: &'static str,
+    standalone: &'static str,
 }
 
 const DARK: Palette = Palette {
     bg: "#1d1d20",
-    fg: "#e0e0e3",
-    heading: "#ffffff",
-    muted: "#9a9a9e",
-    rule: "rgb(255 255 255 / 15%)",
-    surface: "rgb(255 255 255 / 6%)",
-    code_bg: "rgb(255 255 255 / 8%)",
-    note: "#78aeed",
-    tip: "#57e389",
-    important: "#dc8add",
-    warning: "#f8e45c",
-    caution: "#ff7b63",
+    fg: "#ffffff",
+    success_bg: "#26a269",
+    warning_bg: "#cd9309",
+    error_bg: "#c01c28",
+    standalone: "max(l, 0.85) a b",
 };
 
 const LIGHT: Palette = Palette {
     bg: "#ffffff",
     fg: "rgb(0 0 6 / 80%)",
-    heading: "rgb(0 0 6 / 90%)",
-    muted: "rgb(0 0 6 / 55%)",
-    rule: "rgb(0 0 6 / 15%)",
-    surface: "rgb(0 0 6 / 4%)",
-    code_bg: "rgb(0 0 6 / 6%)",
-    note: "#1c71d8",
-    tip: "#26a269",
-    important: "#9141ac",
-    warning: "#9c6e03",
-    caution: "#c01c28",
+    success_bg: "#2ec27e",
+    warning_bg: "#e5a50a",
+    error_bg: "#e01b24",
+    standalone: "min(l, 0.5) a b",
 };
 
 #[derive(Clone, PartialEq)]
 pub struct PreviewTheme {
     pub dark: bool,
     pub accent: String,
+    pub accent_bg: String,
+    pub print_accent: String,
     pub font_family: String,
     pub font_size_px: f64,
     pub mono_family: String,
@@ -64,25 +49,24 @@ fn css_string(s: &str) -> String {
 }
 
 fn palette_vars(p: &Palette, dark: bool) -> String {
+    let standalone = |c: &str| format!("oklab(from {c} {})", p.standalone);
     format!(
         "color-scheme: {scheme};
-            --bg: {bg}; --fg: {fg}; --heading: {heading}; --muted: {muted};
-            --rule: {rule}; --surface: {surface}; --code-bg: {code_bg};
+            --bg: {bg}; --fg: {fg}; --heading: var(--fg);
+            --muted: color-mix(in srgb, var(--fg) 55%, transparent);
+            --rule: color-mix(in srgb, var(--fg) 15%, transparent);
+            --surface: color-mix(in srgb, var(--fg) 4%, transparent);
+            --code-bg: color-mix(in srgb, var(--fg) 8%, transparent);
             --note: {note}; --tip: {tip}; --important: {important};
             --warning: {warning}; --caution: {caution};",
         scheme = if dark { "dark" } else { "light" },
         bg = p.bg,
         fg = p.fg,
-        heading = p.heading,
-        muted = p.muted,
-        rule = p.rule,
-        surface = p.surface,
-        code_bg = p.code_bg,
-        note = p.note,
-        tip = p.tip,
-        important = p.important,
-        warning = p.warning,
-        caution = p.caution,
+        note = standalone("#3584e4"),
+        tip = standalone(p.success_bg),
+        important = standalone("#9141ac"),
+        warning = standalone(p.warning_bg),
+        caution = standalone(p.error_bg),
     )
 }
 
@@ -90,18 +74,19 @@ pub fn theme_variables(t: &PreviewTheme) -> String {
     let p = if t.dark { &DARK } else { &LIGHT };
     format!(
         ":root {{ {vars}
-            --accent: {accent};
+            --accent: {accent}; --accent-bg: {accent_bg};
             --font: {font}, 'Adwaita Sans', 'Cantarell', system-ui, sans-serif;
             --font-size: {size:.2}px;
             --mono: {mono}, 'Adwaita Mono', 'Source Code Pro', monospace; }}
         @media print {{ :root {{ {print_vars} --accent: {print_accent}; --font-size: 11pt; }} }}",
         vars = palette_vars(p, t.dark),
         accent = t.accent,
+        accent_bg = t.accent_bg,
         font = css_string(&t.font_family),
         size = t.font_size_px,
         mono = css_string(&t.mono_family),
         print_vars = palette_vars(&LIGHT, false),
-        print_accent = LIGHT.note,
+        print_accent = t.print_accent,
     )
 }
 
@@ -110,7 +95,7 @@ pub const PREVIEW_CSS: &str = r#"
     body { font-family: var(--font); font-size: var(--font-size); line-height: 1.65;
         padding: 18px 28px; margin: 0; color: var(--fg); background: var(--bg);
         overflow-wrap: break-word; }
-    ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+    ::selection { background: color-mix(in srgb, var(--accent-bg) 25%, transparent); }
     h1,h2,h3,h4,h5,h6 { color: var(--heading); margin: 1.3em 0 0.5em; font-weight: 700; line-height: 1.25; }
     body > :first-child { margin-top: 0.4em; }
     h1 { font-size: 1.85em; border-bottom: 1px solid var(--rule); padding-bottom: 0.3em; }

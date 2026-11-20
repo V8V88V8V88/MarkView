@@ -7,6 +7,7 @@ use sourceview5::prelude::*;
 use sourceview5::{Buffer as SourceBuffer, LanguageManager, View as SourceView, VimIMContext};
 
 use crate::config::*;
+use crate::ui::format;
 use crate::ui::preview::{build_page, current_theme, render_markdown, PreviewView};
 use crate::ui::schemes;
 use crate::ui::search::SearchController;
@@ -91,6 +92,8 @@ pub struct Document {
     preview_widget: gtk4::Widget,
     paned: Paned,
     editor_scroll: ScrolledWindow,
+    editor_box: gtk4::Box,
+    format_bar: gtk4::Box,
     host: Weak<MainWindow>,
     pub page: RefCell<Option<adw::TabPage>>,
     file: RefCell<Option<gio::File>>,
@@ -140,10 +143,15 @@ impl Document {
                 },
             );
             let preview_widget = preview.widget();
+            let editor_box = gtk4::Box::new(Orientation::Vertical, 0);
+            let format_bar = format::toolbar();
+            editor_box.append(&format_bar);
+            editor_scroll.set_vexpand(true);
+            editor_box.append(&editor_scroll);
 
             let paned = Paned::builder()
                 .orientation(if host.is_narrow() { Orientation::Vertical } else { Orientation::Horizontal })
-                .start_child(&editor_scroll)
+                .start_child(&editor_box)
                 .end_child(&preview_widget)
                 .shrink_start_child(true)
                 .shrink_end_child(true)
@@ -164,6 +172,8 @@ impl Document {
                 preview_widget,
                 paned,
                 editor_scroll,
+                editor_box,
+                format_bar,
                 host: Rc::downgrade(host),
                 page: RefCell::new(None),
                 file: RefCell::new(None),
@@ -199,6 +209,30 @@ impl Document {
     }
 
     fn setup_signals(self: &Rc<Self>) {
+        let keys = EventControllerKey::new();
+        keys.set_propagation_phase(PropagationPhase::Capture);
+        let weak = self.weak();
+        keys.connect_key_pressed(move |_, key, _, state| {
+            let plain = !state.intersects(
+                gdk::ModifierType::CONTROL_MASK
+                    | gdk::ModifierType::SHIFT_MASK
+                    | gdk::ModifierType::ALT_MASK
+                    | gdk::ModifierType::SUPER_MASK
+                    | gdk::ModifierType::META_MASK,
+            );
+            if let Some(doc) = weak.upgrade()
+                && plain
+                && matches!(key, gdk::Key::Return | gdk::Key::KP_Enter)
+                && doc.vim.borrow().is_none()
+                && format::handle_return(&doc.buffer)
+            {
+                doc.view.scroll_mark_onscreen(&doc.buffer.get_insert());
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        self.view.add_controller(keys);
+
         let weak = self.weak();
         self.buffer.connect_changed(move |_| {
             if let Some(doc) = weak.upgrade() {
@@ -247,6 +281,7 @@ impl Document {
     }
 
     pub fn apply_settings(&self) {
+        self.format_bar.set_visible(pref_bool(PREF_FORMAT_BAR, DEFAULT_FORMAT_BAR == "true"));
         self.view.set_show_line_numbers(pref_bool(PREF_LINE_NUMBERS, DEFAULT_LINE_NUMBERS == "true"));
         self.view
             .set_highlight_current_line(pref_bool(PREF_HIGHLIGHT_LINE, DEFAULT_HIGHLIGHT_LINE == "true"));
@@ -421,11 +456,13 @@ impl Document {
             ViewMode::Editor => extent,
             ViewMode::Preview => 0,
         };
-        let editor = self.editor_scroll.clone();
+        let editor = self.editor_box.clone();
         let preview = self.preview_widget.clone();
+        let suspend = self.preview.suspender();
         let finish = move || {
             editor.set_visible(mode != ViewMode::Preview);
             preview.set_visible(mode != ViewMode::Editor);
+            suspend(false);
         };
 
         if !animate || !self.paned.is_mapped() {
@@ -434,16 +471,17 @@ impl Document {
             return;
         }
 
-        let from = if !self.editor_scroll.is_visible() {
+        let from = if !self.editor_box.is_visible() {
             0
         } else if !self.preview_widget.is_visible() {
             extent
         } else {
             self.paned.position()
         };
-        self.editor_scroll.set_visible(true);
+        self.editor_box.set_visible(true);
         self.preview_widget.set_visible(true);
         self.paned.set_position(from);
+        self.preview.suspender()(true);
 
         let anim = adw::TimedAnimation::builder()
             .widget(&self.paned)
@@ -456,6 +494,49 @@ impl Document {
         anim.connect_done(move |_| finish());
         anim.play();
         *self.pane_animation.borrow_mut() = Some(anim);
+    }
+
+    pub fn format(self: &Rc<Self>, name: &str) {
+        if !self.editor_box.is_visible() {
+            return;
+        }
+        if name == "image" {
+            self.pick_image();
+        } else if format::apply(&self.buffer, name) {
+            self.view.grab_focus();
+            self.view.scroll_mark_onscreen(&self.buffer.get_insert());
+        }
+    }
+
+    fn pick_image(self: &Rc<Self>) {
+        let filter = gtk4::FileFilter::new();
+        filter.set_name(Some("Images"));
+        filter.add_mime_type("image/*");
+        let filters = gio::ListStore::new::<gtk4::FileFilter>();
+        filters.append(&filter);
+        let dialog = gtk4::FileDialog::builder()
+            .title("Insert Image")
+            .modal(true)
+            .filters(&filters)
+            .default_filter(&filter)
+            .build();
+        let folder = self.file.borrow().as_ref().and_then(|f| f.parent());
+        if let Some(folder) = &folder {
+            dialog.set_initial_folder(Some(folder));
+        }
+        let weak = self.weak();
+        dialog.open(self.parent_window().as_ref(), None::<&gio::Cancellable>, move |result| {
+            let (Some(doc), Ok(image)) = (weak.upgrade(), result) else { return };
+            let Some(path) = image.path() else { return };
+            let alt = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let destination = folder
+                .and_then(|dir| dir.relative_path(&image))
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            format::insert_image(&doc.buffer, &alt, &destination);
+            doc.view.grab_focus();
+        });
     }
 
     pub async fn confirm_discard(self: &Rc<Self>) -> bool {

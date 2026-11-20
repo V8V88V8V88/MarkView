@@ -1,19 +1,4 @@
-//! Preview backed by the system web engine on Windows (WebView2) and macOS
-//! (WKWebView), driven through wry.
-//!
-//! GTK 4 draws a whole window into a single native surface, so the web view
-//! cannot be a GTK widget. Instead an empty GTK widget holds the place in the
-//! layout and the web view is kept on top of that widget's area:
-//!
-//! - Windows: as a child HWND of the GTK window.
-//! - macOS: in a borderless child NSWindow attached to the GTK window. GDK's
-//!   content view is layer-hosting (it sets its own layer before
-//!   `setWantsLayer:`), and AppKit does not support subviews in such a view,
-//!   so the web view cannot simply be added to it.
-//!
-//! The web view draws over everything GTK renders in the window, so it is
-//! hidden whenever GTK shows something in-window on top of the preview: an
-//! AdwDialog or the tab overview.
+//! Preview on Windows (WebView2) and macOS (WKWebView) through wry, kept over a placeholder widget.
 
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -27,31 +12,33 @@ use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle, WindowHan
 use wry::http::{header, Request, Response, StatusCode};
 use wry::{dpi, NewWindowResponse, PageLoadEvent, Rect, WebView, WebViewBuilder};
 
-/// Custom URI scheme the preview page and the files it references are served
-/// from. A page loaded from a string has no base URL, so relative image and
-/// link paths in the Markdown would not resolve without it.
+/// Serves the page and local files so relative paths resolve.
 const SCHEME: &str = "markview";
 
-/// WebView2 cannot register real custom schemes, so wry serves them from
-/// `http://<scheme>.localhost`. Unlike the initial URL, URLs passed to
-/// `WebView::load_url` are not rewritten by wry, so the page URL is built in
-/// the form the engine actually sees.
+/// wry doesn't rewrite `load_url` URLs to WebView2's `http://<scheme>.localhost` form.
 #[cfg(windows)]
 const ORIGIN: &str = "http://markview.localhost";
 #[cfg(target_os = "macos")]
 const ORIGIN: &str = "markview://localhost";
 
-/// The page lives at this name inside the document's folder, so relative
-/// paths resolve against that folder.
 const PAGE_NAME: &str = ".markview-preview.html";
 
-/// Raw HTML in a Markdown file must not run scripts: they could read local
-/// files through the scheme handler. Scripts evaluated by the app itself are
-/// not subject to the page's CSP.
+/// Markdown HTML must not run scripts that could read files via the scheme.
 const CSP: &str = "<meta http-equiv=\"Content-Security-Policy\" \
                    content=\"script-src 'none'; object-src 'none'; base-uri 'none'\">";
 
 type Done = Box<dyn FnOnce(Result<(), String>)>;
+
+const PANED_HANDLE_EXTRA: f64 = 6.0;
+
+fn set_host_background(color: &gdk::RGBA) {
+    thread_local!(static PROVIDER: gtk4::CssProvider = gtk4::CssProvider::new());
+    let Some(display) = gdk::Display::default() else { return };
+    PROVIDER.with(|provider| {
+        provider.load_from_string(&format!(".preview-host {{ background-color: {color}; }}"));
+        gtk4::style_context_add_provider_for_display(&display, provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    });
+}
 
 pub struct PreviewView {
     inner: Rc<Inner>,
@@ -60,12 +47,12 @@ pub struct PreviewView {
 struct Inner {
     host: gtk4::Box,
     webview: RefCell<Option<WebView>>,
-    /// The full page, served to the engine by the scheme handler.
     html: Arc<Mutex<String>>,
     page_url: RefCell<String>,
     background: Cell<wry::RGBA>,
     bounds: Cell<Option<(i32, i32, u32, u32)>>,
     shown: Cell<bool>,
+    suspended: Cell<bool>,
     handlers: RefCell<Vec<(glib::Object, glib::SignalHandlerId)>>,
     on_link: Box<dyn Fn(String)>,
     on_loaded: Box<dyn Fn()>,
@@ -78,10 +65,8 @@ struct Inner {
 }
 
 impl PreviewView {
-    /// `on_link` gets every URI the page tries to navigate away to;
-    /// `on_loaded` runs whenever a full page load finishes.
     pub fn new(on_link: impl Fn(String) + 'static, on_loaded: impl Fn() + 'static) -> Self {
-        let host = gtk4::Box::builder().hexpand(true).vexpand(true).build();
+        let host = gtk4::Box::builder().hexpand(true).vexpand(true).css_classes(["preview-host"]).build();
         let inner = Rc::new(Inner {
             host: host.clone(),
             webview: RefCell::new(None),
@@ -90,6 +75,7 @@ impl PreviewView {
             background: Cell::new((255, 255, 255, 255)),
             bounds: Cell::new(None),
             shown: Cell::new(false),
+            suspended: Cell::new(false),
             handlers: RefCell::new(Vec::new()),
             on_link: Box::new(on_link),
             on_loaded: Box::new(on_loaded),
@@ -101,15 +87,10 @@ impl PreviewView {
             print_delegate: RefCell::new(None),
         });
 
-        // The web view needs the window's native surface, which exists only
-        // while the widget is realized. Moving a tab to another window
-        // unrealizes and realizes it again, which recreates the web view in
-        // the new window.
         let weak = Rc::downgrade(&inner);
         host.connect_realize(move |_| {
             let weak = weak.clone();
-            // Creating a WebView2 controller runs a nested message loop, so
-            // keep it out of GTK's realize.
+            // WebView2 setup runs a nested message loop.
             glib::idle_add_local_once(move || {
                 if let Some(inner) = weak.upgrade() {
                     inner.attach();
@@ -153,8 +134,6 @@ impl PreviewView {
     }
 
     pub fn set_body(&self, body: &str) {
-        // Keep the served page current, so a reload or a recreated web view
-        // shows the latest text.
         {
             let mut html = self.inner.html.lock().unwrap();
             if let Some(start) = html.find("<body>").map(|i| i + "<body>".len()) {
@@ -175,10 +154,22 @@ impl PreviewView {
         }
     }
 
+    /// Hides the view while its pane animates; moving it every frame stutters.
+    pub fn suspender(&self) -> impl Fn(bool) + 'static {
+        let weak = Rc::downgrade(&self.inner);
+        move |suspended| {
+            if let Some(inner) = weak.upgrade() {
+                inner.suspended.set(suspended);
+                inner.update_geometry();
+            }
+        }
+    }
+
     pub fn set_background(&self, color: &gdk::RGBA) {
         let channel = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         let rgba = (channel(color.red()), channel(color.green()), channel(color.blue()), channel(color.alpha()));
         self.inner.background.set(rgba);
+        set_host_background(color);
         if let Some(webview) = self.inner.webview.borrow().as_ref() {
             let _ = webview.set_background_color(rgba);
         }
@@ -242,11 +233,7 @@ impl Inner {
             position: dpi::LogicalPosition::new(0, 0).into(),
             size: dpi::LogicalSize::new(1, 1).into(),
         };
-        // On Windows the view is a child of the GTK window, placed at the
-        // preview pane. On macOS it fills the overlay window, which is what
-        // gets moved to the pane: wry offsets a non-child WKWebView by the
-        // bounds' position and only resizes it with the window, so it must
-        // start at the origin.
+        // wry offsets a non-child WKWebView by the bounds' position.
         #[cfg(windows)]
         let bounds = self.bounds_rect().unwrap_or(origin);
         #[cfg(target_os = "macos")]
@@ -272,8 +259,6 @@ impl Inner {
                 if url == "about:blank" || same_page(&url, &inner.page_url.borrow()) {
                     return true;
                 }
-                // History navigation (mouse back button, context menu) to an
-                // earlier preview page: nothing to follow.
                 if local_path(&url).is_some_and(|p| p.ends_with(PAGE_NAME)) {
                     return false;
                 }
@@ -300,11 +285,9 @@ impl Inner {
         #[cfg(windows)]
         let builder = {
             use wry::WebViewBuilderExtWindows;
-            // Keep Edge's own shortcuts (print, find, reload…) out of the preview.
             builder.with_browser_accelerator_keys(false)
         };
 
-        // On macOS the web view fills the overlay window and resizes with it.
         #[cfg(windows)]
         let built = builder.build_as_child(&parent);
         #[cfg(target_os = "macos")]
@@ -329,10 +312,7 @@ impl Inner {
         }
     }
 
-    /// Win32 keyboard focus stays in the WebView2 child window after it was
-    /// clicked, and GDK does not take it back when GTK's part of the window
-    /// is clicked. GTK only sees presses outside the web view, so any press
-    /// it sees hands focus back to the GTK window.
+    /// GDK doesn't take Win32 focus back from WebView2 on its own.
     #[cfg(windows)]
     fn return_focus_on_click(self: &Rc<Self>) {
         let Some(root) = self.host.root() else { return };
@@ -368,12 +348,9 @@ impl Inner {
         self.shown.set(false);
     }
 
-    /// Track everything that moves the placeholder or covers it.
     fn connect_occluders(self: &Rc<Self>) {
         let mut handlers = self.handlers.borrow_mut();
 
-        // Any change to the window's layout happens in the frame clock's
-        // layout phase, after GTK has allocated the widgets.
         if let Some(clock) = self.host.frame_clock() {
             let weak = Rc::downgrade(self);
             let id = clock.connect_layout(move |_| {
@@ -414,24 +391,31 @@ impl Inner {
             .ancestor(adw::TabOverview::static_type())
             .and_downcast::<adw::TabOverview>()
             .is_some_and(|o| o.is_open());
-        dialog || overview
+        dialog || overview || self.suspended.get()
     }
 
-    /// The placeholder's area in the coordinates of the window's native
-    /// surface: physical pixels on Windows, points on macOS.
+    /// Physical pixels on Windows, points on macOS.
     fn surface_bounds(&self) -> Option<(i32, i32, u32, u32)> {
         let native = self.host.native()?;
         let point = self.host.compute_point(&native, &gtk4::graphene::Point::zero())?;
-        // The surface can be larger than the window, e.g. for CSD shadows.
         let (dx, dy) = native.surface_transform();
-        let (x, y) = (point.x() as f64 + dx, point.y() as f64 + dy);
-        let (w, h) = (self.host.width() as f64, self.host.height() as f64);
+        let (mut x, mut y) = (point.x() as f64 + dx, point.y() as f64 + dy);
+        let (mut w, mut h) = (self.host.width() as f64, self.host.height() as f64);
+        // Leave GtkPaned's handle grab area (6px past the handle) to GTK.
+        if let Some(paned) = self.host.parent().and_downcast::<gtk4::Paned>()
+            && paned.end_child().as_ref() == Some(self.host.upcast_ref())
+        {
+            if paned.orientation() == gtk4::Orientation::Horizontal {
+                x += PANED_HANDLE_EXTRA;
+                w -= PANED_HANDLE_EXTRA;
+            } else {
+                y += PANED_HANDLE_EXTRA;
+                h -= PANED_HANDLE_EXTRA;
+            }
+        }
         if w <= 0.0 || h <= 0.0 {
             return None;
         }
-        // GTK lays out in its own units; on Windows convert with the scale
-        // GTK itself uses for the surface, so a DPI mismatch between GTK and
-        // the HWND cannot misplace the view.
         #[cfg(windows)]
         let scale = native.surface()?.scale();
         #[cfg(not(windows))]
@@ -453,7 +437,6 @@ impl Inner {
         let webview = self.webview.borrow();
         let Some(webview) = webview.as_ref() else { return };
         let bounds = if self.host.is_mapped() && !self.occluded() { self.surface_bounds() } else { None };
-        // On macOS the overlay window is moved and shown instead of the view.
         #[cfg(target_os = "macos")]
         let (overlay, _) = (self.overlay.borrow(), webview);
         if let Some(bounds) = bounds
@@ -480,8 +463,6 @@ impl Inner {
         }
     }
 
-    /// Hand a navigation away from the preview to the document, outside the
-    /// engine's callback.
     fn follow_link(self: &Rc<Self>, url: String) {
         let target = local_file_uri(&url).unwrap_or(url);
         let weak: Weak<Self> = Rc::downgrade(self);
@@ -507,7 +488,6 @@ fn to_rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
     };
 }
 
-/// URL of the preview page for a document whose folder is `base_uri`.
 fn page_url(base_uri: &str) -> String {
     match base_uri.strip_prefix("file://") {
         Some(path) => {
@@ -518,8 +498,6 @@ fn page_url(base_uri: &str) -> String {
     }
 }
 
-/// Map a URL served by the scheme handler back to the `file://` URI it
-/// stands for.
 fn local_file_uri(url: &str) -> Option<String> {
     let rest = url
         .strip_prefix(ORIGIN)
@@ -568,7 +546,6 @@ fn serve(html: &Mutex<String>, request: &Request<Vec<u8>>) -> Response<Cow<'stat
     }
 }
 
-/// The window handle wry attaches the child web view to.
 struct ParentHandle(RawWindowHandle);
 
 impl ParentHandle {
@@ -577,8 +554,6 @@ impl ParentHandle {
         use std::num::NonZeroIsize;
         let surface = widget.native()?.surface()?.downcast::<gdk4_win32::Win32Surface>().ok()?;
         let hwnd = NonZeroIsize::new(surface.handle().0 as isize)?;
-        // Keep GTK's drawing of the window out of the area of the WebView2
-        // child window.
         unsafe {
             use windows::Win32::Foundation::HWND;
             use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_CLIPCHILDREN};
@@ -594,8 +569,7 @@ impl ParentHandle {
 
 impl HasWindowHandle for ParentHandle {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        // SAFETY: the handle comes from a live GDK surface and is only used
-        // while that surface is realized.
+        // SAFETY: handle of a live GDK surface.
         Ok(unsafe { WindowHandle::borrow_raw(self.0) })
     }
 }
@@ -613,14 +587,13 @@ mod win {
 
     use super::Done;
 
-    /// Print the page straight to a PDF file with WebView2's `PrintToPdf`.
     pub fn export_pdf(webview: &WebView, path: &Path, done: Done) -> Result<(), (String, Done)> {
         let start = || -> windows::core::Result<(ICoreWebView2_7, webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2PrintSettings)> {
             let core = webview.webview().cast::<ICoreWebView2_7>()?;
             let environment = webview.environment().cast::<ICoreWebView2Environment6>()?;
             unsafe {
                 let settings = environment.CreatePrintSettings()?;
-                // WebView2 takes margins in inches.
+                // Inches.
                 settings.SetMarginTop(15.0 / 25.4)?;
                 settings.SetMarginBottom(15.0 / 25.4)?;
                 settings.SetMarginLeft(18.0 / 25.4)?;
@@ -634,7 +607,6 @@ mod win {
             Ok(v) => v,
             Err(e) => return Err((e.message(), done)),
         };
-        // Shared so a synchronous failure can still report through `done`.
         let slot = Rc::new(RefCell::new(Some(done)));
         let pending = slot.clone();
         let handler = PrintToPdfCompletedHandler::create(Box::new(move |result, ok| {
@@ -680,8 +652,7 @@ mod mac {
 
     use super::{Done, Inner, ParentHandle};
 
-    /// A borderless child window of the GTK window that holds the web view.
-    /// AppKit keeps child windows above their parent and moves them with it.
+    /// Borderless child NSWindow holding the web view; GDK's content view is layer-hosting.
     pub struct Overlay {
         parent: Retained<NSWindow>,
         child: Retained<NSWindow>,
@@ -691,8 +662,7 @@ mod mac {
         pub fn for_widget(widget: &impl IsA<gtk4::Widget>) -> Option<Self> {
             let mtm = MainThreadMarker::new()?;
             let surface = widget.native()?.surface()?.downcast::<gdk4_macos::MacosSurface>().ok()?;
-            // SAFETY: GDK's NSWindow for this surface; retaining it keeps it
-            // valid for as long as the overlay is attached.
+            // SAFETY: GDK's NSWindow for this surface.
             let parent = unsafe { Retained::retain(surface.native() as *mut NSWindow) }?;
             let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
             let child = unsafe {
@@ -704,12 +674,11 @@ mod mac {
                     false,
                 )
             };
-            // Owned through `Retained`, not released by AppKit on close.
             unsafe { child.setReleasedWhenClosed(false) };
             child.setHasShadow(false);
             let overlay = Self { parent, child };
             overlay.set_shown(false);
-            // SAFETY: both windows are alive and owned by this overlay.
+            // SAFETY: both windows are alive.
             unsafe { overlay.parent.addChildWindow_ordered(&overlay.child, NSWindowOrderingMode::Above) };
             Some(overlay)
         }
@@ -724,8 +693,6 @@ mod mac {
             ParentHandle(raw_window_handle::AppKitWindowHandle::new(view).into())
         }
 
-        /// Cover the given area, in the coordinates of GDK's content view
-        /// (points, flipped so y grows downwards).
         pub fn place(&self, x: i32, y: i32, w: u32, h: u32) {
             let Some(view) = self.parent.contentView() else { return };
             let local = NSRect::new(NSPoint::new(x as f64, y as f64), NSSize::new(w as f64, h as f64));
@@ -734,8 +701,6 @@ mod mac {
             self.child.setFrame_display(on_screen, true);
         }
 
-        /// Hide without ordering the window out, which could detach it from
-        /// its parent's ordering.
         pub fn set_shown(&self, shown: bool) {
             self.child.setAlphaValue(if shown { 1.0 } else { 0.0 });
             self.child.setIgnoresMouseEvents(!shown);
@@ -750,8 +715,7 @@ mod mac {
     }
 
     define_class!(
-        // SAFETY: NSObject has no subclassing requirements and this class
-        // does not implement Drop.
+        // SAFETY: NSObject has no subclassing requirements.
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
         #[name = "MarkViewPrintDelegate"]
@@ -759,8 +723,6 @@ mod mac {
         pub struct PrintDelegate;
 
         impl PrintDelegate {
-            // -[NSObject printOperationDidRun:success:contextInfo:], the
-            // didRunSelector of runOperationModalForWindow:….
             #[unsafe(method(printOperationDidRun:success:contextInfo:))]
             fn did_run(&self, _operation: &NSPrintOperation, success: Bool, _context: *mut c_void) {
                 if let Some(done) = self.ivars().borrow_mut().take() {
@@ -780,8 +742,6 @@ mod mac {
         }
     }
 
-    /// Save the page as a paginated PDF through WKWebView's print operation,
-    /// with the job's disposition set to save to `path` and no panels shown.
     pub fn export_pdf(inner: &Rc<Inner>, webview: &WebView, path: &Path, done: Done) -> Result<(), (String, Done)> {
         let Some(mtm) = MainThreadMarker::new() else {
             return Err(("PDF export must run on the main thread".into(), done));
@@ -799,7 +759,6 @@ mod mac {
             info.setJobDisposition(NSPrintSaveJob);
             info.dictionary().insert(NSPrintJobSavingURL, AsRef::<AnyObject>::as_ref(&*url));
         }
-        // NSPrintInfo margins are in points.
         let mm = 72.0 / 25.4;
         info.setTopMargin(15.0 * mm);
         info.setBottomMargin(15.0 * mm);
@@ -809,8 +768,7 @@ mod mac {
         let operation = unsafe { wk.printOperationWithPrintInfo(&info) };
         operation.setShowsPrintPanel(false);
         operation.setShowsProgressPanel(false);
-        // WKWebView's print view starts with an empty frame, which prints
-        // blank pages.
+        // Otherwise the print view has an empty frame and prints blank pages.
         if let Some(view) = operation.view() {
             view.setFrame(wk.bounds());
         }
@@ -824,7 +782,7 @@ mod mac {
                 std::ptr::null_mut(),
             );
         }
-        // The operation does not retain its delegate.
+        // NSPrintOperation doesn't retain its delegate.
         *inner.print_delegate.borrow_mut() = Some(delegate);
         Ok(())
     }

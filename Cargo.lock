@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "gtk-markdown-viewer"
-version = "2.1.0-beta.4"
+version = "2.1.0-beta.5"
 dependencies = [
  "gdk4-macos",
  "gdk4-win32",

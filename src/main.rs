@@ -1,5 +1,3 @@
-// Release builds on Windows are GUI apps; without this a console window
-// opens next to them.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
@@ -96,7 +94,7 @@ fn show_about(app: &Application) {
         ("GtkSourceView", "© The GtkSourceView Team", gtk4::License::Lgpl21),
     ];
     if cfg!(any(windows, target_os = "macos")) {
-        // wry is Apache-2.0 OR MIT; MIT is the one compatible with GPL-2.0.
+        // MIT, of wry's Apache-2.0 OR MIT, is GPL-2.0-compatible.
         legal.push(("wry", "© Ngo Iok Ui & Tauri Programme within The Commons Conservancy", gtk4::License::MitX11));
     } else {
         legal.push(("WebKitGTK", "© The WebKitGTK Team", gtk4::License::Lgpl21));
@@ -161,10 +159,7 @@ fn setup(app: &Application) {
     apply_accels(app);
 }
 
-/// GLib and GTK on macOS look for their data (icon themes, GSettings schemas,
-/// GtkSourceView languages) in the directories they were built with, or in
-/// `XDG_DATA_DIRS`. Inside MarkView.app those files live in
-/// `Contents/Resources/share`, so point `XDG_DATA_DIRS` there.
+/// GTK on macOS finds its data only via build paths or `XDG_DATA_DIRS`.
 #[cfg(target_os = "macos")]
 fn use_bundled_data() {
     let Some(share) = std::env::current_exe()
@@ -179,7 +174,7 @@ fn use_bundled_data() {
         dirs.push(":");
         dirs.push(existing);
     }
-    // SAFETY: runs first thing in main, before GTK or any other thread starts.
+    // SAFETY: no other threads yet.
     unsafe { std::env::set_var("XDG_DATA_DIRS", dirs) };
 }
 

@@ -1,5 +1,3 @@
-//! Preview backed by WebKitGTK, which is a regular GTK widget.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -17,8 +15,6 @@ pub struct PreviewView {
 }
 
 impl PreviewView {
-    /// `on_link` gets every URI the page tries to navigate away to;
-    /// `on_loaded` runs whenever a full page load finishes.
     pub fn new(on_link: impl Fn(String) + 'static, on_loaded: impl Fn() + 'static) -> Self {
         let webview = WebView::new();
         if let Some(settings) = WebViewExt::settings(&webview) {
@@ -93,6 +89,10 @@ impl PreviewView {
         );
     }
 
+    pub fn suspender(&self) -> impl Fn(bool) + 'static {
+        |_| {}
+    }
+
     pub fn set_background(&self, color: &gdk::RGBA) {
         self.webview.set_background_color(color);
     }
@@ -112,8 +112,7 @@ impl PreviewView {
         op.set_print_settings(&settings);
         op.set_page_setup(&page_setup);
 
-        // WebKit emits "failed" before "finished" when an export fails, so
-        // whichever comes first reports the result.
+        // "failed" comes before "finished".
         let done: Rc<RefCell<Option<Done>>> = Rc::new(RefCell::new(Some(Box::new(done))));
         let (slot, ops) = (done.clone(), self.print_op.clone());
         op.connect_failed(move |_, e| {
