@@ -2,7 +2,7 @@ MarkView 2.1.0-beta.6 is a test build of the Windows and macOS versions. Please 
 
 New in this build:
 
-- Saving shows a short "Saved" toast, so you can see the file was written. Save As shows "Saved as" with the new name.
+- Saving shows a short "Saved" toast, so you can see the file was written. Save As shows "Saved as" with the new name. Thanks to @RUPESH0409 for reporting it.
 
 Downloads:
 
