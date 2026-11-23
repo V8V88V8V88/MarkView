@@ -1,0 +1,108 @@
+name: Bug report
+description: Something is broken, crashes or doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! Please fill in as much as you can.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you start
+      options:
+        - label: I searched the existing issues and this hasn't been reported yet
+          required: true
+        - label: I'm using the latest release
+          required: false
+
+  - type: checkboxes
+    id: kind
+    attributes:
+      label: What kind of problem is it?
+      options:
+        - label: The app crashes or closes
+        - label: Something used to work and is now broken
+        - label: The preview looks wrong or doesn't update
+        - label: Saving, opening or exporting files fails
+        - label: A keyboard shortcut doesn't work
+        - label: Something else
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a file
+        2. Click …
+        3. See the problem
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Drag and drop images or videos here.
+
+  - type: input
+    id: version
+    attributes:
+      label: MarkView version
+      description: Shown in the About window.
+      placeholder: 2.1.0-beta.6
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install MarkView?
+      options:
+        - Flatpak
+        - Linux tarball
+        - Windows zip
+        - macOS dmg
+        - Built from source
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version and desktop
+      placeholder: Fedora 45, GNOME 51 / Windows 11 / macOS 26
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output
+      description: If you started MarkView from a terminal, paste any errors here.
+      render: shell
