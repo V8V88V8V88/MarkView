@@ -102,6 +102,7 @@ pub struct Document {
     pending_render: RefCell<Option<glib::SourceId>>,
     vim: RefCell<Option<EventControllerKey>>,
     pane_animation: RefCell<Option<adw::TimedAnimation>>,
+    save_toast: RefCell<Option<adw::Toast>>,
 }
 
 impl Document {
@@ -182,6 +183,7 @@ impl Document {
                 pending_render: RefCell::new(None),
                 vim: RefCell::new(None),
                 pane_animation: RefCell::new(None),
+                save_toast: RefCell::new(None),
             }
         });
         doc.setup_signals();
@@ -616,6 +618,7 @@ impl Document {
                 if renamed {
                     self.render(true);
                 }
+                self.toast_saved(file, renamed);
                 true
             }
             Err((_, e)) => {
@@ -623,6 +626,20 @@ impl Document {
                 false
             }
         }
+    }
+
+    fn toast_saved(&self, file: &gio::File, renamed: bool) {
+        let Some(host) = self.host() else { return };
+        if let Some(old) = self.save_toast.borrow_mut().take() {
+            old.dismiss();
+        }
+        let verb = if renamed { "Saved as" } else { "Saved" };
+        let toast = adw::Toast::builder()
+            .title(format!("{verb} “{}”", display_name(file)))
+            .timeout(2)
+            .build();
+        *self.save_toast.borrow_mut() = Some(toast.clone());
+        host.toast(toast);
     }
 
     pub async fn save(self: &Rc<Self>) -> bool {
